@@ -7,6 +7,9 @@ compile_commands.json
 # Project data (do not commit local data files)
 /data/
 
+# Documentation (local-only)
+/docs/
+
 # Local/tooling state
 /.pixi/
 /.omx/
