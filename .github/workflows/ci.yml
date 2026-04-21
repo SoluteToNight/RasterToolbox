@@ -1,0 +1,29 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Pixi
+      uses: prefix-dev/setup-pixi@v0.8.8
+
+      - name: Install xvfb
+      run: sudo apt-get update && sudo apt-get install -y xvfb
+
+      - name: Configure
+      run: pixi run ci-configure
+
+      - name: Build
+      run: pixi run ci-build
+
+      - name: Test
+      run: pixi run ci-test
+
+      - name: Smoke
+      run: pixi run ci-smoke

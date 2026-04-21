@@ -1,0 +1,28 @@
+# Build artifacts
+/build/
+cmake-build-*/
+CMakeUserPresets.json
+compile_commands.json
+
+# Project data (do not commit local data files)
+/data/
+
+# Local/tooling state
+/.pixi/
+/.omx/
+/.cache/
+/.codex
+/.data
+
+# IDE/editor
+*.user
+.vscode/
+.idea/
+
+# Binary outputs
+*.obj
+*.o
+*.so
+*.dll
+*.dylib
+*.exe

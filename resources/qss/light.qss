@@ -1,0 +1,115 @@
+QMainWindow#mainWindow {
+    background: #f8fafc;
+}
+
+QWidget {
+    color: #111827;
+    font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    font-size: 13px;
+}
+
+QSplitter#mainSplitter::handle {
+    background: #d1d5db;
+    width: 2px;
+    margin: 8px 0;
+}
+
+QWidget#sourcePanel,
+QWidget#presetPanel,
+QWidget#queuePanel,
+QWidget#logPanel {
+    background: #ffffff;
+    border: 1px solid #d1d5db;
+    border-radius: 10px;
+}
+
+QPushButton {
+    background: #f1f5f9;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    color: #111827;
+    padding: 7px 12px;
+}
+
+QPushButton:hover {
+    background: #e2e8f0;
+}
+
+QPushButton:pressed {
+    background: #dbeafe;
+}
+
+QPushButton#importSourceButton,
+QPushButton#addTaskButton {
+    background: #2563eb;
+    border-color: #2563eb;
+    color: #f8fafc;
+    font-weight: 600;
+}
+
+QPushButton#importSourceButton:hover,
+QPushButton#addTaskButton:hover {
+    background: #3b82f6;
+}
+
+QComboBox,
+QLineEdit,
+QSpinBox,
+QPlainTextEdit,
+QTextEdit,
+QListWidget,
+QTableWidget {
+    background: #ffffff;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    selection-background-color: #bfdbfe;
+    selection-color: #0f172a;
+    padding: 4px 6px;
+}
+
+QComboBox::drop-down {
+    border: none;
+    width: 18px;
+}
+
+QHeaderView::section {
+    background: #e2e8f0;
+    color: #334155;
+    border: none;
+    border-right: 1px solid #cbd5e1;
+    border-bottom: 1px solid #cbd5e1;
+    padding: 6px 8px;
+    font-weight: 600;
+}
+
+QTableWidget::item {
+    padding: 4px;
+}
+
+QLabel#sourceErrorLabel,
+QLabel#presetValidationLabel {
+    color: #be123c;
+    font-weight: 600;
+}
+
+QScrollBar:vertical,
+QScrollBar:horizontal {
+    background: #f8fafc;
+    border: none;
+    margin: 2px;
+}
+
+QScrollBar::handle:vertical,
+QScrollBar::handle:horizontal {
+    background: #cbd5e1;
+    border-radius: 6px;
+    min-height: 24px;
+    min-width: 24px;
+}
+
+QScrollBar::add-line,
+QScrollBar::sub-line {
+    width: 0px;
+    height: 0px;
+    border: none;
+}

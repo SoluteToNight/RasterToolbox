@@ -1,0 +1,31 @@
+[workspace]
+name = "rastertoolbox"
+channels = ["conda-forge"]
+platforms = ["linux-64"]
+
+[dependencies]
+cmake = ">=3.20,<4"
+ninja = "*"
+cxx-compiler = "*"
+qt6-main = ">=6.5,<7"
+gdal = ">=3.6,<4"
+nlohmann_json = ">=3.11,<4"
+spdlog = ">=1.12,<2"
+sqlite = ">=3.44,<4"
+pkg-config = "*"
+
+[tasks]
+configure = "cmake --preset dev"
+build = "cmake --build --preset dev"
+test = "ctest --preset dev --output-on-failure"
+smoke = "xvfb-run -a ./build/dev/rastertoolbox --smoke-startup"
+configure-host = "cmake --preset host-linux"
+build-host = "cmake --build --preset host-linux"
+test-host = "ctest --preset host-linux --output-on-failure"
+configure-mingw = "cmake --preset mingw-debug"
+build-mingw = "cmake --build --preset mingw-debug"
+ci-configure = "cmake --preset ci-linux"
+ci-build = "cmake --build --preset ci-linux"
+ci-test = "ctest --preset ci-linux --output-on-failure"
+ci-smoke = "xvfb-run -a ./build/ci-linux/rastertoolbox --smoke-startup"
+phase6-acceptance = "bash ./scripts/phase6_acceptance.sh"

@@ -1,0 +1,35 @@
+#pragma once
+
+#include <string>
+
+#include "rastertoolbox/common/ErrorClass.hpp"
+#include "rastertoolbox/config/Preset.hpp"
+
+namespace rastertoolbox::dispatcher {
+
+enum class TaskStatus {
+    Pending,
+    Running,
+    Paused,
+    Canceled,
+    Finished,
+    Failed
+};
+
+struct Task {
+    std::string id;
+    std::string inputPath;
+    std::string outputPath;
+    rastertoolbox::config::Preset presetSnapshot;
+    TaskStatus status{TaskStatus::Pending};
+    double progress{0.0};
+    bool cancelRequested{false};
+    rastertoolbox::common::ErrorClass errorClass{rastertoolbox::common::ErrorClass::None};
+    std::string errorCode;
+    std::string details;
+    std::string statusMessage;
+    std::string createdAt;
+    std::string updatedAt;
+};
+
+} // namespace rastertoolbox::dispatcher
