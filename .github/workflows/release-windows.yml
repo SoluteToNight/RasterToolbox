@@ -30,9 +30,24 @@ jobs:
       - name: Bootstrap vcpkg
         shell: pwsh
         run: |
-          git clone https://github.com/microsoft/vcpkg "${env:VCPKG_ROOT}"
-          git -C "${env:VCPKG_ROOT}" checkout b781af668027bbf77f2f827f47b5c6cd8d825c08
-          & "${env:VCPKG_ROOT}/bootstrap-vcpkg.bat" -disableMetrics
+          $ErrorActionPreference = 'Stop'
+          $gitCmd = (Get-Command git -ErrorAction SilentlyContinue).Source
+          if (-not $gitCmd -and (Test-Path 'C:\Program Files\Git\cmd\git.exe')) {
+            $gitCmd = 'C:\Program Files\Git\cmd\git.exe'
+          }
+          if (-not $gitCmd) { throw 'git not found on runner PATH' }
+          & $gitCmd --version
+
+          if (Test-Path "${env:VCPKG_ROOT}") {
+            Remove-Item -Path "${env:VCPKG_ROOT}" -Recurse -Force
+          }
+
+          & $gitCmd clone https://github.com/microsoft/vcpkg "${env:VCPKG_ROOT}"
+          & $gitCmd -C "${env:VCPKG_ROOT}" checkout b781af668027bbf77f2f827f47b5c6cd8d825c08
+
+          $bootstrap = Join-Path "${env:VCPKG_ROOT}" 'bootstrap-vcpkg.bat'
+          if (-not (Test-Path $bootstrap)) { throw "missing bootstrap script: $bootstrap" }
+          & $bootstrap -disableMetrics
 
       - name: Verify release tools
         shell: pwsh
