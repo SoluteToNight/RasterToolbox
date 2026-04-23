@@ -20,17 +20,27 @@ jobs:
     env:
       TAG: ${{ github.ref_name }}
       GH_TOKEN: ${{ github.token }}
-      VCPKG_ROOT: ${{ github.workspace }}/.vcpkg
+      VCPKG_ROOT: ${{ github.workspace }}\.vcpkg
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Setup MSVC
         uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1
 
+      - name: Pin vcpkg root
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $vcpkgRoot = Join-Path $env:GITHUB_WORKSPACE '.vcpkg'
+          "VCPKG_ROOT=$vcpkgRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "VCPKG_FORCE_SYSTEM_BINARIES=1" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "Pinned VCPKG_ROOT=$vcpkgRoot"
+
       - name: Bootstrap vcpkg
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
+          $vcpkgRoot = Join-Path $env:GITHUB_WORKSPACE '.vcpkg'
           $gitCmd = (Get-Command git -ErrorAction SilentlyContinue).Source
           if (-not $gitCmd -and (Test-Path 'C:\Program Files\Git\cmd\git.exe')) {
             $gitCmd = 'C:\Program Files\Git\cmd\git.exe'
@@ -38,14 +48,14 @@ jobs:
           if (-not $gitCmd) { throw 'git not found on runner PATH' }
           & $gitCmd --version
 
-          if (Test-Path "${env:VCPKG_ROOT}") {
-            Remove-Item -Path "${env:VCPKG_ROOT}" -Recurse -Force
+          if (Test-Path $vcpkgRoot) {
+            Remove-Item -Path $vcpkgRoot -Recurse -Force
           }
 
-          & $gitCmd clone https://github.com/microsoft/vcpkg "${env:VCPKG_ROOT}"
-          & $gitCmd -C "${env:VCPKG_ROOT}" checkout b781af668027bbf77f2f827f47b5c6cd8d825c08
+          & $gitCmd clone https://github.com/microsoft/vcpkg $vcpkgRoot
+          & $gitCmd -C $vcpkgRoot checkout b781af668027bbf77f2f827f47b5c6cd8d825c08
 
-          $bootstrap = Join-Path "${env:VCPKG_ROOT}" 'bootstrap-vcpkg.bat'
+          $bootstrap = Join-Path $vcpkgRoot 'bootstrap-vcpkg.bat'
           if (-not (Test-Path $bootstrap)) { throw "missing bootstrap script: $bootstrap" }
           & $bootstrap -disableMetrics
 
@@ -57,7 +67,9 @@ jobs:
 
       - name: Configure
         shell: pwsh
-        run: cmake --preset ci-windows
+        run: |
+          $vcpkgToolchain = Join-Path $env:GITHUB_WORKSPACE '.vcpkg\scripts\buildsystems\vcpkg.cmake'
+          cmake --preset ci-windows -DCMAKE_TOOLCHAIN_FILE="$vcpkgToolchain" -DVCPKG_TARGET_TRIPLET=x64-windows
 
       - name: Build
         shell: pwsh
