@@ -35,33 +35,29 @@ jobs:
 
   windows:
     runs-on: windows-latest
-    defaults:
-      run:
-        shell: msys2 {0}
+    env:
+      VCPKG_ROOT: ${{ runner.temp }}\\vcpkg
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      - name: Setup MSYS2 (MinGW64 + deps)
-        uses: msys2/setup-msys2@fb197b72ce45fb24f17bf3f807a388985654d1f2 # v2.29.0
-        with:
-          msystem: MINGW64
-          update: true
-          install: >-
-            mingw-w64-x86_64-toolchain
-            mingw-w64-x86_64-cmake
-            mingw-w64-x86_64-ninja
-            mingw-w64-x86_64-gdal
-            mingw-w64-x86_64-nlohmann-json
-            mingw-w64-x86_64-spdlog
-            mingw-w64-x86_64-sqlite3
-            mingw-w64-x86_64-qt6-base
-            mingw-w64-x86_64-qt6-tools
+      - name: Setup MSVC
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1
+
+      - name: Bootstrap vcpkg
+        shell: pwsh
+        run: |
+          git clone https://github.com/microsoft/vcpkg "${env:VCPKG_ROOT}"
+          git -C "${env:VCPKG_ROOT}" checkout b781af668027bbf77f2f827f47b5c6cd8d825c08
+          & "${env:VCPKG_ROOT}/bootstrap-vcpkg.bat" -disableMetrics
 
       - name: Configure
+        shell: pwsh
         run: cmake --preset ci-windows
 
       - name: Build
+        shell: pwsh
         run: cmake --build --preset ci-windows
 
       - name: Test
+        shell: pwsh
         run: ctest --preset ci-windows

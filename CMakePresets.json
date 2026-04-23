@@ -50,7 +50,7 @@
     },
     {
       "name": "ci-windows",
-      "displayName": "CI Windows (MSYS2)",
+      "displayName": "CI Windows (vcpkg)",
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/ci-windows",
       "condition": {
@@ -60,12 +60,14 @@
       },
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
-        "BUILD_TESTING": "ON"
+        "BUILD_TESTING": "ON",
+        "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+        "VCPKG_TARGET_TRIPLET": "x64-windows"
       }
     },
     {
       "name": "windows-msys2",
-      "displayName": "Windows MSYS2 (Local)",
+      "displayName": "Windows vcpkg (Local)",
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/windows-msys2",
       "condition": {
@@ -75,7 +77,9 @@
       },
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
-        "BUILD_TESTING": "ON"
+        "BUILD_TESTING": "ON",
+        "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+        "VCPKG_TARGET_TRIPLET": "x64-windows"
       }
     }
   ],

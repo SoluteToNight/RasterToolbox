@@ -17,23 +17,22 @@ pixi run test
 xvfb-run -a pixi run ./build/dev/rastertoolbox --smoke-startup
 ```
 
-## Windows 编译（MSYS2 MinGW64）
+## Windows 编译（vcpkg）
 
-推荐在 **MSYS2 MinGW64** 环境中构建：
+Windows 依赖统一通过 `vcpkg` manifest（`vcpkg.json`）管理。
 
-1. 安装依赖包（示例）：
-   - `mingw-w64-x86_64-toolchain`
-   - `mingw-w64-x86_64-cmake`
-   - `mingw-w64-x86_64-ninja`
-   - `mingw-w64-x86_64-qt6-base`
-   - `mingw-w64-x86_64-gdal`
-   - `mingw-w64-x86_64-nlohmann-json`
-   - `mingw-w64-x86_64-spdlog`
-   - `mingw-w64-x86_64-sqlite3`
+1. 先准备 `vcpkg`：
 
-2. 使用 Windows 预设构建：
+```powershell
+git clone https://github.com/microsoft/vcpkg C:\\vcpkg
+cd C:\\vcpkg
+.\\bootstrap-vcpkg.bat -disableMetrics
+```
 
-```bash
+2. 设置环境变量并使用 Windows 预设构建：
+
+```powershell
+$env:VCPKG_ROOT = "C:\\vcpkg"
 cmake --preset windows-msys2
 cmake --build --preset windows-msys2
 ctest --preset windows-msys2
@@ -43,6 +42,7 @@ ctest --preset windows-msys2
 
 - 发布入口：推送版本标签 `v*`（例如 `v0.1.0`）。
 - 工作流文件：`/.github/workflows/release-windows.yml`。
+- 发布环境：`MSVC + vcpkg`（依赖由 `vcpkg.json` 管理）。
 - 发布产物：`RasterToolbox-<tag>-windows-x64.zip`（示例：`RasterToolbox-v0.1.0-windows-x64.zip`）。
 - 同一 tag 重跑：使用 `gh release upload --clobber` 替换同名资产，Release 保持单份同名 zip。
 - 失败语义：

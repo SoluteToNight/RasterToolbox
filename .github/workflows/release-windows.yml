@@ -17,69 +17,65 @@ jobs:
     runs-on: windows-latest
     permissions:
       contents: write
-    defaults:
-      run:
-        shell: msys2 {0}
     env:
       TAG: ${{ github.ref_name }}
       GH_TOKEN: ${{ github.token }}
+      VCPKG_ROOT: ${{ runner.temp }}\\vcpkg
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      - name: Setup MSYS2 (MinGW64 + release deps)
-        uses: msys2/setup-msys2@fb197b72ce45fb24f17bf3f807a388985654d1f2 # v2.29.0
-        with:
-          msystem: MINGW64
-          update: true
-          install: >-
-            mingw-w64-x86_64-toolchain
-            mingw-w64-x86_64-cmake
-            mingw-w64-x86_64-ninja
-            mingw-w64-x86_64-gdal
-            mingw-w64-x86_64-nlohmann-json
-            mingw-w64-x86_64-spdlog
-            mingw-w64-x86_64-sqlite3
-            mingw-w64-x86_64-qt6-base
-            mingw-w64-x86_64-qt6-tools
-            mingw-w64-x86_64-ntldd
-            zip
+      - name: Setup MSVC
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1
 
-      - name: Configure Git line endings
-        run: git config --global core.autocrlf input
-
-      - name: Verify toolchain and release tools
+      - name: Bootstrap vcpkg
+        shell: pwsh
         run: |
-          set -euo pipefail
+          git clone https://github.com/microsoft/vcpkg "${env:VCPKG_ROOT}"
+          git -C "${env:VCPKG_ROOT}" checkout b781af668027bbf77f2f827f47b5c6cd8d825c08
+          & "${env:VCPKG_ROOT}/bootstrap-vcpkg.bat" -disableMetrics
+
+      - name: Verify release tools
+        shell: pwsh
+        run: |
           gh --version
-          ntldd --version
-          windeployqt --version
-          zip -v | head -n 1
+          cmake --version
 
       - name: Configure
+        shell: pwsh
         run: cmake --preset ci-windows
 
       - name: Build
+        shell: pwsh
         run: cmake --build --preset ci-windows
 
       - name: Test
+        shell: pwsh
         run: ctest --preset ci-windows
 
       - name: Package release zip
-        run: |
-          set -euo pipefail
-          bash scripts/package-windows-release.sh "${TAG}"
+        shell: pwsh
+        run: ./scripts/package-windows-release.ps1 -Tag "${env:TAG}"
 
       - name: Smoke release directory
+        shell: pwsh
         run: |
-          set -euo pipefail
-          test -f ./dist/windows-release/rastertoolbox.exe
-          test -d ./dist/windows-release/share/gdal
-          test -d ./dist/windows-release/share/proj
-          export QT_QPA_PLATFORM=offscreen
-          export GDAL_DATA="$PWD/dist/windows-release/share/gdal"
-          export PROJ_LIB="$PWD/dist/windows-release/share/proj"
-          ./dist/windows-release/rastertoolbox.exe --smoke-startup | tee ./dist/smoke.log
-          grep -q "smoke-startup:ok" ./dist/smoke.log
+          $dist = Join-Path $PWD 'dist/windows-release'
+          $exe = Join-Path $dist 'rastertoolbox.exe'
+          $gdalData = Join-Path $dist 'share/gdal'
+          $projLib = Join-Path $dist 'share/proj'
+          if (-not (Test-Path $exe -PathType Leaf)) { throw "missing executable: $exe" }
+          if (-not (Test-Path $gdalData -PathType Container)) { throw "missing GDAL data dir: $gdalData" }
+          if (-not (Test-Path $projLib -PathType Container)) { throw "missing PROJ data dir: $projLib" }
+
+          $env:QT_QPA_PLATFORM = 'offscreen'
+          $env:GDAL_DATA = $gdalData
+          $env:PROJ_LIB = $projLib
+
+          $logPath = Join-Path $PWD 'dist/smoke.log'
+          & $exe --smoke-startup 2>&1 | Tee-Object -FilePath $logPath
+          if (-not (Select-String -Path $logPath -Pattern 'smoke-startup:ok' -Quiet)) {
+            throw 'smoke-startup marker not found'
+          }
 
       - name: Upload release artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -90,17 +86,20 @@ jobs:
           retention-days: 14
 
       - name: Publish GitHub Release asset
+        shell: pwsh
         run: |
-          set -euo pipefail
-          release_view_stderr="$(mktemp)"
-          if gh release view "${TAG}" >/dev/null 2>"${release_view_stderr}"; then
-            :
-          elif grep -qi '404' "${release_view_stderr}"; then
-            gh release create "${TAG}" --verify-tag --title "${TAG}" --notes ""
-          else
-            cat "${release_view_stderr}" >&2
-            exit 1
-          fi
-          rm -f "${release_view_stderr}"
-          gh release upload "${TAG}" "dist/RasterToolbox-${TAG}-windows-x64.zip" --clobber
-          gh release view "${TAG}" --json url --jq '.url'
+          $viewOutput = gh release view "${env:TAG}" --json id 2>&1
+          if ($LASTEXITCODE -ne 0) {
+            if ($viewOutput -match '404') {
+              gh release create "${env:TAG}" --verify-tag --title "${env:TAG}" --notes ""
+              if ($LASTEXITCODE -ne 0) { throw 'failed to create release' }
+            } else {
+              $viewOutput | Write-Host
+              throw 'failed to query release'
+            }
+          }
+
+          gh release upload "${env:TAG}" "dist/RasterToolbox-${env:TAG}-windows-x64.zip" --clobber
+          if ($LASTEXITCODE -ne 0) { throw 'failed to upload release asset' }
+
+          gh release view "${env:TAG}" --json url --jq '.url'
