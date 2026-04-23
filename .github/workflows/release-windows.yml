@@ -1,0 +1,106 @@
+name: release-windows
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  release-windows:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    defaults:
+      run:
+        shell: msys2 {0}
+    env:
+      TAG: ${{ github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Setup MSYS2 (MinGW64 + release deps)
+        uses: msys2/setup-msys2@fb197b72ce45fb24f17bf3f807a388985654d1f2 # v2.29.0
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-toolchain
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-ninja
+            mingw-w64-x86_64-gdal
+            mingw-w64-x86_64-nlohmann-json
+            mingw-w64-x86_64-spdlog
+            mingw-w64-x86_64-sqlite3
+            mingw-w64-x86_64-qt6-base
+            mingw-w64-x86_64-qt6-tools
+            mingw-w64-x86_64-ntldd
+            zip
+
+      - name: Configure Git line endings
+        run: git config --global core.autocrlf input
+
+      - name: Verify toolchain and release tools
+        run: |
+          set -euo pipefail
+          gh --version
+          ntldd --version
+          windeployqt --version
+          zip -v | head -n 1
+
+      - name: Configure
+        run: cmake --preset ci-windows
+
+      - name: Build
+        run: cmake --build --preset ci-windows
+
+      - name: Test
+        run: ctest --preset ci-windows
+
+      - name: Package release zip
+        run: |
+          set -euo pipefail
+          bash scripts/package-windows-release.sh "${TAG}"
+
+      - name: Smoke release directory
+        run: |
+          set -euo pipefail
+          test -f ./dist/windows-release/rastertoolbox.exe
+          test -d ./dist/windows-release/share/gdal
+          test -d ./dist/windows-release/share/proj
+          export QT_QPA_PLATFORM=offscreen
+          export GDAL_DATA="$PWD/dist/windows-release/share/gdal"
+          export PROJ_LIB="$PWD/dist/windows-release/share/proj"
+          ./dist/windows-release/rastertoolbox.exe --smoke-startup | tee ./dist/smoke.log
+          grep -q "smoke-startup:ok" ./dist/smoke.log
+
+      - name: Upload release artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: windows-release-${{ github.ref_name }}
+          path: dist/RasterToolbox-${{ github.ref_name }}-windows-x64.zip
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Publish GitHub Release asset
+        run: |
+          set -euo pipefail
+          release_view_stderr="$(mktemp)"
+          if gh release view "${TAG}" >/dev/null 2>"${release_view_stderr}"; then
+            :
+          elif grep -qi '404' "${release_view_stderr}"; then
+            gh release create "${TAG}" --verify-tag --title "${TAG}" --notes ""
+          else
+            cat "${release_view_stderr}" >&2
+            exit 1
+          fi
+          rm -f "${release_view_stderr}"
+          gh release upload "${TAG}" "dist/RasterToolbox-${TAG}-windows-x64.zip" --clobber
+          gh release view "${TAG}" --json url --jq '.url'

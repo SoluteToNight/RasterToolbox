@@ -39,6 +39,16 @@ cmake --build --preset windows-msys2
 ctest --preset windows-msys2
 ```
 
+## Windows 发布（GitHub Actions）
+
+- 发布入口：推送版本标签 `v*`（例如 `v0.1.0`）。
+- 工作流文件：`/.github/workflows/release-windows.yml`。
+- 发布产物：`RasterToolbox-<tag>-windows-x64.zip`（示例：`RasterToolbox-v0.1.0-windows-x64.zip`）。
+- 同一 tag 重跑：使用 `gh release upload --clobber` 替换同名资产，Release 保持单份同名 zip。
+- 失败语义：
+  - `smoke` 失败时不会进入 Release 写入步骤。
+  - 进入 `--clobber` 上传后若失败，可能需要 rerun 以恢复到单资产一致状态。
+
 ## 交叉编译（Linux -> Windows, 可选）
 
 ```bash
