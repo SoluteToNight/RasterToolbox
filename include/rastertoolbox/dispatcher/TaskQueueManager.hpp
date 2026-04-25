@@ -17,6 +17,10 @@ public:
 
     [[nodiscard]] std::optional<Task> popNextPending();
 
+    bool removeTask(const std::string& taskId, std::string& error);
+    [[nodiscard]] std::size_t clearFinished(bool includeFailed = true);
+    bool retryTask(const std::string& taskId, const std::string& newTaskId, std::string& error);
+    bool duplicateTask(const std::string& taskId, const std::string& newTaskId, std::string& error);
     bool requestCancel(const std::string& taskId);
     void pauseQueue();
     void resumeQueue();

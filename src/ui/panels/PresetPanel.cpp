@@ -8,6 +8,7 @@
 #include <QLineEdit>
 #include <QPlainTextEdit>
 #include <QPushButton>
+#include <QStringList>
 #include <QSpinBox>
 #include <QVBoxLayout>
 
@@ -15,15 +16,33 @@
 
 namespace rastertoolbox::ui::panels {
 
+namespace {
+
+QString joinOverviewLevels(const std::vector<int>& levels) {
+    QStringList values;
+    values.reserve(static_cast<qsizetype>(levels.size()));
+    for (const int level : levels) {
+        values.push_back(QString::number(level));
+    }
+    return values.join(", ");
+}
+
+} // namespace
+
 PresetPanel::PresetPanel(QWidget* parent) : QWidget(parent) {
     setObjectName("presetPanel");
     auto* layout = new QVBoxLayout(this);
+    layout->setContentsMargins(18, 18, 18, 18);
+    layout->setSpacing(14);
 
     presetCombo_ = new QComboBox(this);
     presetCombo_->setObjectName("presetCombo");
+    presetCombo_->setProperty("surfaceRole", QStringLiteral("presetSelector"));
     layout->addWidget(presetCombo_);
 
     auto* formLayout = new QFormLayout();
+    formLayout->setHorizontalSpacing(14);
+    formLayout->setVerticalSpacing(10);
     formatEdit_ = new QLineEdit(this);
     formatEdit_->setObjectName("outputFormatEdit");
     compressionMethodEdit_ = new QLineEdit(this);
@@ -37,10 +56,23 @@ PresetPanel::PresetPanel(QWidget* parent) : QWidget(parent) {
     outputDirectoryEdit_->setObjectName("outputDirectoryEdit");
     outputSuffixEdit_ = new QLineEdit(this);
     outputSuffixEdit_->setObjectName("outputSuffixEdit");
+    overviewLevelsEdit_ = new QLineEdit(this);
+    overviewLevelsEdit_->setObjectName("overviewLevelsEdit");
+    overviewLevelsEdit_->setPlaceholderText("2,4,8,16");
+    overviewResamplingCombo_ = new QComboBox(this);
+    overviewResamplingCombo_->setObjectName("overviewResamplingCombo");
+    overviewResamplingCombo_->addItems({"AVERAGE", "NEAREST", "BILINEAR", "CUBIC", "LANCZOS"});
+    targetEpsgEdit_ = new QLineEdit(this);
+    targetEpsgEdit_->setObjectName("targetEpsgEdit");
+    targetEpsgEdit_->setPlaceholderText("EPSG:4326");
+    resamplingCombo_ = new QComboBox(this);
+    resamplingCombo_->setObjectName("resamplingCombo");
+    resamplingCombo_->addItems({"nearest", "bilinear", "cubic", "lanczos", "average"});
     overwriteCheck_ = new QCheckBox("允许覆盖已有输出", this);
     overwriteCheck_->setObjectName("overwriteCheck");
     gdalOptionsEdit_ = new QPlainTextEdit(this);
     gdalOptionsEdit_->setObjectName("gdalOptionsEdit");
+    gdalOptionsEdit_->setProperty("surfaceRole", QStringLiteral("codeEditor"));
     gdalOptionsEdit_->setPlaceholderText(R"({"COMPRESS":"LZW","TILED":"YES"})");
     gdalOptionsEdit_->setMaximumHeight(160);
 
@@ -50,22 +82,29 @@ PresetPanel::PresetPanel(QWidget* parent) : QWidget(parent) {
     formLayout->addRow("构建金字塔", buildOverviewsCheck_);
     formLayout->addRow("输出目录", outputDirectoryEdit_);
     formLayout->addRow("输出后缀", outputSuffixEdit_);
+    formLayout->addRow("金字塔等级", overviewLevelsEdit_);
+    formLayout->addRow("金字塔重采样", overviewResamplingCombo_);
+    formLayout->addRow("目标坐标系", targetEpsgEdit_);
+    formLayout->addRow("重投影采样", resamplingCombo_);
     formLayout->addRow("覆盖输出", overwriteCheck_);
-    formLayout->addRow("GDAL 选项(JSON)", gdalOptionsEdit_);
+    formLayout->addRow("Creation Options(JSON)", gdalOptionsEdit_);
     layout->addLayout(formLayout);
 
     auto* buttonLayout = new QHBoxLayout();
+    buttonLayout->setSpacing(10);
     loadButton_ = new QPushButton("加载预设文件", this);
     loadButton_->setObjectName("loadPresetButton");
+    loadButton_->setProperty("buttonRole", QStringLiteral("secondary"));
     saveButton_ = new QPushButton("保存当前预设", this);
     saveButton_->setObjectName("savePresetButton");
+    saveButton_->setProperty("buttonRole", QStringLiteral("primary"));
     buttonLayout->addWidget(loadButton_);
     buttonLayout->addWidget(saveButton_);
     layout->addLayout(buttonLayout);
 
     validationLabel_ = new QLabel(this);
     validationLabel_->setObjectName("presetValidationLabel");
-    validationLabel_->setStyleSheet("color: #b00020;");
+    validationLabel_->setProperty("semanticRole", QStringLiteral("validation"));
     layout->addWidget(validationLabel_);
 
     wireEvents();
@@ -101,6 +140,10 @@ void PresetPanel::wireEvents() {
     });
     connect(outputDirectoryEdit_, &QLineEdit::editingFinished, this, formChanged);
     connect(outputSuffixEdit_, &QLineEdit::editingFinished, this, formChanged);
+    connect(overviewLevelsEdit_, &QLineEdit::editingFinished, this, formChanged);
+    connect(overviewResamplingCombo_, &QComboBox::currentIndexChanged, this, [formChanged](int) { formChanged(); });
+    connect(targetEpsgEdit_, &QLineEdit::editingFinished, this, formChanged);
+    connect(resamplingCombo_, &QComboBox::currentIndexChanged, this, [formChanged](int) { formChanged(); });
     connect(overwriteCheck_, &QCheckBox::checkStateChanged, this, [formChanged](Qt::CheckState) {
         formChanged();
     });
@@ -151,8 +194,13 @@ void PresetPanel::applyPresetToForm(const rastertoolbox::config::Preset& preset)
     buildOverviewsCheck_->setChecked(preset.buildOverviews);
     outputDirectoryEdit_->setText(QString::fromStdString(preset.outputDirectory));
     outputSuffixEdit_->setText(QString::fromStdString(preset.outputSuffix));
+    overviewLevelsEdit_->setText(joinOverviewLevels(preset.overviewLevels));
+    overviewResamplingCombo_->setCurrentText(QString::fromStdString(preset.overviewResampling));
+    targetEpsgEdit_->setText(QString::fromStdString(preset.targetEpsg));
+    resamplingCombo_->setCurrentText(QString::fromStdString(preset.resampling));
     overwriteCheck_->setChecked(preset.overwriteExisting);
-    gdalOptionsEdit_->setPlainText(QString::fromStdString(preset.gdalOptions.dump(2)));
+    const auto& creationOptions = preset.creationOptions.empty() ? preset.gdalOptions : preset.creationOptions;
+    gdalOptionsEdit_->setPlainText(QString::fromStdString(creationOptions.dump(2)));
 }
 
 rastertoolbox::config::Preset PresetPanel::presetFromForm() const {
@@ -169,18 +217,45 @@ rastertoolbox::config::Preset PresetPanel::presetFromForm() const {
     preset.buildOverviews = buildOverviewsCheck_->isChecked();
     preset.outputDirectory = outputDirectoryEdit_->text().toStdString();
     preset.outputSuffix = outputSuffixEdit_->text().toStdString();
+    preset.overviewLevels = buildOverviewsCheck_->isChecked() ? overviewLevelsFromForm() : std::vector<int>{};
+    preset.overviewResampling = overviewResamplingCombo_->currentText().toStdString();
+    preset.targetEpsg = targetEpsgEdit_->text().trimmed().toStdString();
+    preset.resampling = resamplingCombo_->currentText().toStdString();
     preset.overwriteExisting = overwriteCheck_->isChecked();
     const auto rawGdalOptions = gdalOptionsEdit_->toPlainText().trimmed().toStdString();
     if (rawGdalOptions.empty()) {
+        preset.creationOptions = nlohmann::json::object();
         preset.gdalOptions = nlohmann::json::object();
     } else {
         try {
-            preset.gdalOptions = nlohmann::json::parse(rawGdalOptions);
+            preset.creationOptions = nlohmann::json::parse(rawGdalOptions);
+            preset.gdalOptions = preset.creationOptions;
         } catch (const std::exception&) {
+            preset.creationOptions = nlohmann::json::array();
             preset.gdalOptions = nlohmann::json::array();
         }
     }
     return preset;
+}
+
+std::vector<int> PresetPanel::overviewLevelsFromForm() const {
+    std::vector<int> levels;
+    const auto rawValue = overviewLevelsEdit_->text().trimmed();
+    if (rawValue.isEmpty()) {
+        return levels;
+    }
+
+    const QStringList parts = rawValue.split(',', Qt::SkipEmptyParts);
+    levels.reserve(static_cast<std::size_t>(parts.size()));
+    for (const QString& part : parts) {
+        bool ok = false;
+        const int level = part.trimmed().toInt(&ok);
+        if (!ok) {
+            return {1};
+        }
+        levels.push_back(level);
+    }
+    return levels;
 }
 
 std::string PresetPanel::gdalOptionsValidationError() const {
@@ -192,10 +267,10 @@ std::string PresetPanel::gdalOptionsValidationError() const {
     try {
         const auto parsed = nlohmann::json::parse(rawGdalOptions);
         if (!parsed.is_object()) {
-            return "gdalOptions 必须是 JSON object";
+            return "creationOptions 必须是 JSON object";
         }
     } catch (const std::exception& error) {
-        return "gdalOptions JSON 解析失败: " + std::string(error.what());
+        return "creationOptions JSON 解析失败: " + std::string(error.what());
     }
 
     return {};

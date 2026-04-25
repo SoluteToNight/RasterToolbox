@@ -1,9 +1,9 @@
 <RCC>
   <qresource prefix="/presets">
-    <file>../presets/default-presets.json</file>
+    <file alias="default-presets.json">../presets/default-presets.json</file>
   </qresource>
   <qresource prefix="/styles">
-    <file>../qss/modern.qss</file>
-    <file>../qss/light.qss</file>
+    <file alias="modern.qss">../qss/modern.qss</file>
+    <file alias="light.qss">../qss/light.qss</file>
   </qresource>
 </RCC>

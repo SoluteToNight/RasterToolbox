@@ -43,6 +43,30 @@ void TaskDispatcherService::resumeQueue() {
     emitSnapshot();
 }
 
+bool TaskDispatcherService::removeTask(const std::string& taskId, std::string& error) {
+    const bool removed = queue_.removeTask(taskId, error);
+    emitSnapshot();
+    return removed;
+}
+
+std::size_t TaskDispatcherService::clearFinished(const bool includeFailed) {
+    const auto removedCount = queue_.clearFinished(includeFailed);
+    emitSnapshot();
+    return removedCount;
+}
+
+bool TaskDispatcherService::retryTask(const std::string& taskId, const std::string& newTaskId, std::string& error) {
+    const bool retried = queue_.retryTask(taskId, newTaskId, error);
+    emitSnapshot();
+    return retried;
+}
+
+bool TaskDispatcherService::duplicateTask(const std::string& taskId, const std::string& newTaskId, std::string& error) {
+    const bool duplicated = queue_.duplicateTask(taskId, newTaskId, error);
+    emitSnapshot();
+    return duplicated;
+}
+
 bool TaskDispatcherService::cancelTask(const std::string& taskId) {
     if (!queue_.requestCancel(taskId)) {
         return false;

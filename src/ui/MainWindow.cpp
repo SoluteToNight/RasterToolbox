@@ -1,24 +1,45 @@
 #include "rastertoolbox/ui/MainWindow.hpp"
 
+#include <algorithm>
 #include <filesystem>
+#include <map>
+#include <sstream>
 
 #include <QAction>
 #include <QActionGroup>
 #include <QApplication>
+#include <QDesktopServices>
 #include <QFileDialog>
 #include <QFile>
+#include <QImage>
 #include <QMenuBar>
 #include <QSplitter>
+#include <QUrl>
 
 #include "rastertoolbox/common/Timestamp.hpp"
 #include "rastertoolbox/config/JsonSchemas.hpp"
 #include "rastertoolbox/dispatcher/ProgressEvent.hpp"
+#include "rastertoolbox/dispatcher/TaskReportSerializer.hpp"
 #include "rastertoolbox/ui/panels/LogPanel.hpp"
 #include "rastertoolbox/ui/panels/PresetPanel.hpp"
 #include "rastertoolbox/ui/panels/QueuePanel.hpp"
 #include "rastertoolbox/ui/panels/SourcePanel.hpp"
 
 namespace rastertoolbox::ui {
+
+namespace {
+
+const rastertoolbox::dispatcher::Task* findTaskById(
+    const std::vector<rastertoolbox::dispatcher::Task>& tasks,
+    const std::string& taskId
+) {
+    const auto it = std::find_if(tasks.begin(), tasks.end(), [&taskId](const rastertoolbox::dispatcher::Task& task) {
+        return task.id == taskId;
+    });
+    return it == tasks.end() ? nullptr : &(*it);
+}
+
+} // namespace
 
 MainWindow::MainWindow()
     : taskDispatcher_(executionService_, this) {
@@ -28,6 +49,8 @@ MainWindow::MainWindow()
 
     auto* splitter = new QSplitter(this);
     splitter->setObjectName("mainSplitter");
+    splitter->setHandleWidth(12);
+    splitter->setChildrenCollapsible(false);
 
     sourcePanel_ = new panels::SourcePanel(splitter);
     presetPanel_ = new panels::PresetPanel(splitter);
@@ -56,6 +79,16 @@ MainWindow::MainWindow()
     queuePanel_->setOnAddTaskRequested([this]() { handleAddTaskRequested(); });
     queuePanel_->setOnPauseRequested([this]() { handlePauseRequested(); });
     queuePanel_->setOnResumeRequested([this]() { handleResumeRequested(); });
+    queuePanel_->setOnRemoveRequested([this](const std::string& taskId) { handleRemoveRequested(taskId); });
+    queuePanel_->setOnRetryRequested([this](const std::string& taskId) { handleRetryRequested(taskId); });
+    queuePanel_->setOnDuplicateRequested([this](const std::string& taskId) { handleDuplicateRequested(taskId); });
+    queuePanel_->setOnClearFinishedRequested([this]() { handleClearFinishedRequested(); });
+    queuePanel_->setOnOpenOutputFolderRequested([this](const std::string& taskId) {
+        handleOpenOutputFolderRequested(taskId);
+    });
+    queuePanel_->setOnExportTaskReportRequested([this](const std::string& taskId) {
+        handleExportTaskReportRequested(taskId);
+    });
     queuePanel_->setOnCancelRequested([this](const std::string& taskId) { handleCancelRequested(taskId); });
 
     taskDispatcher_.setMaxConcurrentTasks(appSettings_.maxConcurrentTasks);
@@ -111,6 +144,8 @@ void MainWindow::setupThemeMenu() {
 void MainWindow::applyTheme(const std::string& theme) {
     const bool isLight = theme == "light";
     appSettings_.theme = isLight ? "light" : "dark";
+    const auto themeName = isLight ? QStringLiteral("light") : QStringLiteral("dark");
+    setProperty("theme", themeName);
 
     if (darkThemeAction_ != nullptr) {
         darkThemeAction_->setChecked(!isLight);
@@ -137,6 +172,7 @@ void MainWindow::applyTheme(const std::string& theme) {
     }
 
     if (qApp != nullptr) {
+        qApp->setProperty("theme", themeName);
         qApp->setStyleSheet(QString::fromUtf8(styleFile.readAll()));
     }
 
@@ -209,6 +245,7 @@ void MainWindow::handleSourceSelected(const std::string& path) {
     auto metadata = datasetReader_.readMetadata(path, error);
     if (!metadata.has_value()) {
         sourcePanel_->showError(QString::fromStdString("导入失败: " + error));
+        sourcePanel_->clearPreview("预览不可用");
         appendLog(
             rastertoolbox::dispatcher::EventSource::Engine,
             rastertoolbox::dispatcher::LogLevel::Error,
@@ -226,7 +263,35 @@ void MainWindow::handleSourceSelected(const std::string& path) {
     sourcePanel_->showError({});
     auto datasetInfo = *metadata;
     datasetInfo.suggestedOutputDirectory = currentPreset_.outputDirectory;
+    sourceMetadataCache_[path] = datasetInfo;
     sourcePanel_->setMetadata(datasetInfo);
+    sourcePanel_->setBatchSummary(QString::fromStdString(buildBatchSummary()));
+
+    std::string previewError;
+    if (const auto preview = datasetReader_.readPreview(path, 256, previewError); preview.has_value()) {
+        QImage image(
+            preview->rgba.data(),
+            preview->width,
+            preview->height,
+            QImage::Format_RGBA8888
+        );
+        sourcePanel_->setPreview(image.copy());
+    } else {
+        sourcePanel_->clearPreview("预览不可用");
+        if (!previewError.empty()) {
+            appendLog(
+                rastertoolbox::dispatcher::EventSource::Engine,
+                rastertoolbox::dispatcher::LogLevel::Warning,
+                "预览生成失败: " + previewError,
+                {},
+                -1.0,
+                "preview",
+                rastertoolbox::common::ErrorClass::TaskError,
+                "PREVIEW_FAILED",
+                previewError
+            );
+        }
+    }
 
     appendLog(
         rastertoolbox::dispatcher::EventSource::Engine,
@@ -459,6 +524,190 @@ void MainWindow::handleResumeRequested() {
     );
 }
 
+void MainWindow::handleRemoveRequested(const std::string& taskId) {
+    std::string error;
+    if (!taskDispatcher_.removeTask(taskId, error)) {
+        appendLog(
+            rastertoolbox::dispatcher::EventSource::Dispatcher,
+            rastertoolbox::dispatcher::LogLevel::Warning,
+            "移除任务失败: " + error,
+            taskId,
+            -1.0,
+            "task-remove",
+            rastertoolbox::common::ErrorClass::ValidationError,
+            "TASK_REMOVE_FAILED",
+            error
+        );
+        return;
+    }
+
+    appendLog(
+        rastertoolbox::dispatcher::EventSource::Dispatcher,
+        rastertoolbox::dispatcher::LogLevel::Info,
+        "任务已移除",
+        taskId,
+        -1.0,
+        "task-remove"
+    );
+}
+
+void MainWindow::handleRetryRequested(const std::string& taskId) {
+    const auto newTaskId = createTaskId();
+    std::string error;
+    if (!taskDispatcher_.retryTask(taskId, newTaskId, error)) {
+        appendLog(
+            rastertoolbox::dispatcher::EventSource::Dispatcher,
+            rastertoolbox::dispatcher::LogLevel::Warning,
+            "重试任务失败: " + error,
+            taskId,
+            -1.0,
+            "task-retry",
+            rastertoolbox::common::ErrorClass::ValidationError,
+            "TASK_RETRY_FAILED",
+            error
+        );
+        return;
+    }
+
+    appendLog(
+        rastertoolbox::dispatcher::EventSource::Dispatcher,
+        rastertoolbox::dispatcher::LogLevel::Info,
+        "任务已重试为新任务: " + newTaskId,
+        newTaskId,
+        0.0,
+        "task-retry"
+    );
+}
+
+void MainWindow::handleDuplicateRequested(const std::string& taskId) {
+    const auto newTaskId = createTaskId();
+    std::string error;
+    if (!taskDispatcher_.duplicateTask(taskId, newTaskId, error)) {
+        appendLog(
+            rastertoolbox::dispatcher::EventSource::Dispatcher,
+            rastertoolbox::dispatcher::LogLevel::Warning,
+            "复制任务失败: " + error,
+            taskId,
+            -1.0,
+            "task-duplicate",
+            rastertoolbox::common::ErrorClass::ValidationError,
+            "TASK_DUPLICATE_FAILED",
+            error
+        );
+        return;
+    }
+
+    appendLog(
+        rastertoolbox::dispatcher::EventSource::Dispatcher,
+        rastertoolbox::dispatcher::LogLevel::Info,
+        "任务已复制为新任务: " + newTaskId,
+        newTaskId,
+        0.0,
+        "task-duplicate"
+    );
+}
+
+void MainWindow::handleClearFinishedRequested() {
+    const auto removedCount = taskDispatcher_.clearFinished();
+    appendLog(
+        rastertoolbox::dispatcher::EventSource::Dispatcher,
+        rastertoolbox::dispatcher::LogLevel::Info,
+        "已清理终态任务数: " + std::to_string(removedCount),
+        {},
+        -1.0,
+        "task-clear-finished"
+    );
+}
+
+void MainWindow::handleOpenOutputFolderRequested(const std::string& taskId) {
+    const auto tasks = taskDispatcher_.snapshot();
+    const auto* task = findTaskById(tasks, taskId);
+    if (task == nullptr) {
+        appendLog(
+            rastertoolbox::dispatcher::EventSource::Ui,
+            rastertoolbox::dispatcher::LogLevel::Warning,
+            "打开输出目录失败：未找到任务",
+            taskId,
+            -1.0,
+            "open-output-folder",
+            rastertoolbox::common::ErrorClass::ValidationError,
+            "TASK_NOT_FOUND"
+        );
+        return;
+    }
+
+    const auto folderPath = std::filesystem::path(task->outputPath).parent_path();
+    const bool opened = QDesktopServices::openUrl(QUrl::fromLocalFile(QString::fromStdString(folderPath.string())));
+    appendLog(
+        rastertoolbox::dispatcher::EventSource::Ui,
+        opened ? rastertoolbox::dispatcher::LogLevel::Info : rastertoolbox::dispatcher::LogLevel::Warning,
+        opened ? "已请求打开输出目录" : "打开输出目录失败",
+        taskId,
+        -1.0,
+        "open-output-folder",
+        opened ? rastertoolbox::common::ErrorClass::None : rastertoolbox::common::ErrorClass::InternalError,
+        opened ? "" : "OPEN_OUTPUT_FOLDER_FAILED",
+        folderPath.string()
+    );
+}
+
+void MainWindow::handleExportTaskReportRequested(const std::string& taskId) {
+    const auto tasks = taskDispatcher_.snapshot();
+    const auto* task = findTaskById(tasks, taskId);
+    if (task == nullptr) {
+        appendLog(
+            rastertoolbox::dispatcher::EventSource::Ui,
+            rastertoolbox::dispatcher::LogLevel::Warning,
+            "导出任务报告失败：未找到任务",
+            taskId,
+            -1.0,
+            "export-task-report",
+            rastertoolbox::common::ErrorClass::ValidationError,
+            "TASK_NOT_FOUND"
+        );
+        return;
+    }
+
+    const QString path = QFileDialog::getSaveFileName(
+        this,
+        "导出任务报告",
+        QString::fromStdString(task->id + "-report.json"),
+        "JSON (*.json)"
+    );
+    if (path.isEmpty()) {
+        return;
+    }
+
+    std::string error;
+    const auto events = logPanel_->eventsForTask(taskId);
+    if (!rastertoolbox::dispatcher::writeTaskReport(path.toStdString(), *task, events, error)) {
+        appendLog(
+            rastertoolbox::dispatcher::EventSource::Ui,
+            rastertoolbox::dispatcher::LogLevel::Warning,
+            "导出任务报告失败: " + error,
+            taskId,
+            -1.0,
+            "export-task-report",
+            rastertoolbox::common::ErrorClass::InternalError,
+            "TASK_REPORT_EXPORT_FAILED",
+            error
+        );
+        return;
+    }
+
+    appendLog(
+        rastertoolbox::dispatcher::EventSource::Ui,
+        rastertoolbox::dispatcher::LogLevel::Info,
+        "任务报告已导出",
+        taskId,
+        -1.0,
+        "export-task-report",
+        rastertoolbox::common::ErrorClass::None,
+        {},
+        path.toStdString()
+    );
+}
+
 void MainWindow::handleCancelRequested(const std::string& taskId) {
     if (!taskDispatcher_.cancelTask(taskId)) {
         appendLog(
@@ -513,13 +762,61 @@ std::vector<std::string> MainWindow::selectedSourcePaths() const {
     return sourcePanel_->selectedPaths();
 }
 
+std::string MainWindow::buildBatchSummary() const {
+    const auto paths = sourcePanel_->sourcePaths();
+    std::uint64_t totalPixels = 0;
+    std::map<std::string, int> driverCounts;
+    std::map<std::string, int> epsgCounts;
+
+    for (const auto& path : paths) {
+        const auto it = sourceMetadataCache_.find(path);
+        if (it == sourceMetadataCache_.end()) {
+            continue;
+        }
+
+        const auto& info = it->second;
+        totalPixels += static_cast<std::uint64_t>(std::max(0, info.width)) *
+            static_cast<std::uint64_t>(std::max(0, info.height));
+        if (!info.driver.empty()) {
+            ++driverCounts[info.driver];
+        }
+        if (!info.epsg.empty()) {
+            ++epsgCounts[info.epsg];
+        }
+    }
+
+    auto summarizeCounts = [](const std::map<std::string, int>& counts) {
+        std::ostringstream stream;
+        bool first = true;
+        for (const auto& [key, value] : counts) {
+            if (!first) {
+                stream << ", ";
+            }
+            stream << key << ":" << value;
+            first = false;
+        }
+        return stream.str();
+    };
+
+    std::ostringstream summary;
+    summary << "数量: " << paths.size() << " | 总像素: " << totalPixels;
+    if (!driverCounts.empty()) {
+        summary << " | Driver: " << summarizeCounts(driverCounts);
+    }
+    if (!epsgCounts.empty()) {
+        summary << " | EPSG: " << summarizeCounts(epsgCounts);
+    }
+    return summary.str();
+}
+
 std::string MainWindow::computeOutputPath(
     const std::string& inputPath,
     const rastertoolbox::config::Preset& preset
 ) const {
     const std::filesystem::path source(inputPath);
     const auto stem = source.stem().string();
-    const auto outputName = stem + preset.outputSuffix + ".tif";
+    const std::string extension = preset.outputExtension.empty() ? ".tif" : preset.outputExtension;
+    const auto outputName = stem + preset.outputSuffix + extension;
     const std::filesystem::path output = std::filesystem::path(preset.outputDirectory) / outputName;
     return output.string();
 }

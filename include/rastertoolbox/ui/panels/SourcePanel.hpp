@@ -12,6 +12,7 @@
 class QLabel;
 class QListWidget;
 class QPushButton;
+class QImage;
 class QTextEdit;
 
 namespace rastertoolbox::ui::panels {
@@ -23,8 +24,12 @@ public:
     void addSourcePath(const QString& path);
     [[nodiscard]] QString selectedPath() const;
     [[nodiscard]] std::vector<std::string> selectedPaths() const;
+    [[nodiscard]] std::vector<std::string> sourcePaths() const;
 
     void setMetadata(const rastertoolbox::engine::DatasetInfo& info);
+    void setBatchSummary(const QString& summary);
+    void setPreview(const QImage& preview);
+    void clearPreview(const QString& message = {});
     void showError(const QString& message);
     void setOnImportRequested(std::function<void()> callback);
     void setOnSourceSelected(std::function<void(const std::string&)> callback);
@@ -34,6 +39,8 @@ private:
 
     QListWidget* sourceList_{};
     QTextEdit* metadataView_{};
+    QLabel* batchSummaryLabel_{};
+    QLabel* previewLabel_{};
     QLabel* errorLabel_{};
     QPushButton* importButton_{};
 

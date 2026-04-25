@@ -5,6 +5,7 @@
 
 #include <cpl_string.h>
 #include <gdal_priv.h>
+#include <gdal_utils.h>
 
 #include "rastertoolbox/common/ErrorClass.hpp"
 #include "rastertoolbox/common/Timestamp.hpp"
@@ -12,6 +13,25 @@
 namespace rastertoolbox::engine {
 
 namespace {
+
+std::string optionValueFromJson(const nlohmann::json& value) {
+    if (value.is_string()) {
+        return value.get_ref<const std::string&>();
+    }
+
+    return value.dump();
+}
+
+void setOptionFromJson(char*** options, const std::string& key, const nlohmann::json& value) {
+    const std::string optionValue = optionValueFromJson(value);
+    *options = CSLSetNameValue(*options, key.c_str(), optionValue.c_str());
+}
+
+void appendWarpOption(char*** options, const std::string& key, const nlohmann::json& value) {
+    const std::string optionValue = key + "=" + optionValueFromJson(value);
+    *options = CSLAddString(*options, "-co");
+    *options = CSLAddString(*options, optionValue.c_str());
+}
 
 struct ProgressContext {
     const rastertoolbox::dispatcher::WorkerContext* workerContext;
@@ -59,6 +79,7 @@ RasterJobResult RasterConverter::convert(
     const EventCallback& eventCallback
 ) const {
     RasterJobResult result;
+    result.outputPath = request.outputPath;
 
     if (workerContext.isCancelRequested()) {
         result.canceled = true;
@@ -92,31 +113,106 @@ RasterJobResult RasterConverter::convert(
         return result;
     }
 
-    GDALDriver* driver = GetGDALDriverManager()->GetDriverByName("GTiff");
+    GDALDriver* driver = GetGDALDriverManager()->GetDriverByName(request.preset.driverName.c_str());
     if (driver == nullptr) {
         GDALClose(sourceDataset);
         result.errorClass = rastertoolbox::common::ErrorClass::InternalError;
-        result.errorCode = "GTIFF_DRIVER_NOT_FOUND";
-        result.message = "找不到 GTiff 驱动";
+        result.errorCode = "OUTPUT_DRIVER_NOT_FOUND";
+        result.message = "找不到输出驱动";
+        result.details = request.preset.driverName;
+        return result;
+    }
+
+    const auto& optionPayload = request.preset.creationOptions.is_object() && !request.preset.creationOptions.empty()
+        ? request.preset.creationOptions
+        : request.preset.gdalOptions;
+
+    const bool requiresWarp = !request.preset.targetEpsg.empty();
+    if (requiresWarp) {
+        char** warpOptions = nullptr;
+        warpOptions = CSLAddString(warpOptions, "-of");
+        warpOptions = CSLAddString(warpOptions, request.preset.driverName.c_str());
+        warpOptions = CSLAddString(warpOptions, "-t_srs");
+        warpOptions = CSLAddString(warpOptions, request.preset.targetEpsg.c_str());
+        warpOptions = CSLAddString(warpOptions, "-r");
+        warpOptions = CSLAddString(warpOptions, request.preset.resampling.c_str());
+        if (optionPayload.is_object()) {
+            for (const auto& [key, value] : optionPayload.items()) {
+                appendWarpOption(&warpOptions, key, value);
+            }
+        }
+
+        ProgressContext progressContext{
+            .workerContext = &workerContext,
+            .eventCallback = eventCallback,
+            .taskId = request.taskId,
+            .phase = "重投影转换",
+        };
+
+        int usageError = 0;
+        GDALWarpAppOptions* warpAppOptions = GDALWarpAppOptionsNew(warpOptions, nullptr);
+        if (warpAppOptions == nullptr) {
+            CSLDestroy(warpOptions);
+            GDALClose(sourceDataset);
+            result.errorClass = rastertoolbox::common::ErrorClass::InternalError;
+            result.errorCode = "WARP_OPTIONS_CREATE_FAILED";
+            result.message = "无法创建重投影选项";
+            return result;
+        }
+        GDALWarpAppOptionsSetProgress(warpAppOptions, gdalProgress, &progressContext);
+        GDALDatasetH sources[] = {sourceDataset};
+        GDALDatasetH outputDataset = GDALWarp(
+            request.outputPath.c_str(),
+            nullptr,
+            1,
+            sources,
+            warpAppOptions,
+            &usageError
+        );
+
+        GDALWarpAppOptionsFree(warpAppOptions);
+        CSLDestroy(warpOptions);
+
+        if (outputDataset == nullptr || usageError != 0) {
+            GDALClose(sourceDataset);
+            if (workerContext.isCancelRequested()) {
+                result.canceled = true;
+                result.errorClass = rastertoolbox::common::ErrorClass::TaskCanceled;
+                result.errorCode = "CANCELED_DURING_WARP";
+                result.message = "任务在重投影过程中被取消";
+                return result;
+            }
+
+            result.errorClass = rastertoolbox::common::ErrorClass::TaskError;
+            result.errorCode = "WARP_FAILED";
+            result.message = "栅格重投影失败";
+            result.details = CPLGetLastErrorMsg();
+            return result;
+        }
+
+        GDALClose(outputDataset);
+        GDALClose(sourceDataset);
+        result.success = true;
+        result.message = "重投影转换完成";
         return result;
     }
 
     char** options = nullptr;
-    options = CSLSetNameValue(options, "COMPRESS", request.preset.compressionMethod.c_str());
-    options = CSLSetNameValue(options, "TILED", "YES");
-
-    const std::string zlevel = std::to_string(request.preset.compressionLevel);
-    options = CSLSetNameValue(options, "ZLEVEL", zlevel.c_str());
-
-    if (request.preset.gdalOptions.is_object()) {
-        for (const auto& [key, value] : request.preset.gdalOptions.items()) {
-            if (value.is_string()) {
-                options = CSLSetNameValue(options, key.c_str(), value.get_ref<const std::string&>().c_str());
-            } else {
-                const std::string serialized = value.dump();
-                options = CSLSetNameValue(options, key.c_str(), serialized.c_str());
-            }
+    if (optionPayload.is_object()) {
+        for (const auto& [key, value] : optionPayload.items()) {
+            setOptionFromJson(&options, key, value);
         }
+    }
+
+    if (CSLFetchNameValue(options, "COMPRESS") == nullptr && !request.preset.compressionMethod.empty()) {
+        options = CSLSetNameValue(options, "COMPRESS", request.preset.compressionMethod.c_str());
+    }
+    if (CSLFetchNameValue(options, "TILED") == nullptr) {
+        options = CSLSetNameValue(options, "TILED", "YES");
+    }
+    if (CSLFetchNameValue(options, "ZLEVEL") == nullptr && request.preset.compressionLevel > 0) {
+        const std::string zlevel = std::to_string(request.preset.compressionLevel);
+        options = CSLSetNameValue(options, "ZLEVEL", zlevel.c_str());
     }
 
     ProgressContext progressContext{

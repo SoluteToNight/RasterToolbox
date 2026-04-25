@@ -1,18 +1,88 @@
 [
   {
-    "schemaVersion": 2,
+    "schemaVersion": 3,
     "id": "gtiff-default",
-    "name": "GeoTIFF Default",
-    "outputFormat": "GTiff",
-    "compressionMethod": "LZW",
-    "compressionLevel": 6,
-    "buildOverviews": true,
+    "name": "Standard GeoTIFF",
+    "outputFormat": "Standard GeoTIFF",
+    "driverName": "GTiff",
+    "outputExtension": ".tif",
+    "compressionMethod": "NONE",
+    "compressionLevel": 0,
+    "buildOverviews": false,
+    "overviewLevels": [],
+    "overviewResampling": "AVERAGE",
     "outputDirectory": "./output",
     "outputSuffix": "_converted",
     "overwriteExisting": false,
+    "creationOptions": {
+      "TILED": "NO"
+    },
+    "gdalOptions": {
+      "TILED": "NO"
+    },
+    "targetEpsg": "",
+    "resampling": "nearest"
+  },
+  {
+    "schemaVersion": 3,
+    "id": "gtiff-lzw-tiled",
+    "name": "Compressed GeoTIFF",
+    "outputFormat": "Compressed GeoTIFF",
+    "driverName": "GTiff",
+    "outputExtension": ".tif",
+    "compressionMethod": "LZW",
+    "compressionLevel": 6,
+    "buildOverviews": true,
+    "overviewLevels": [2, 4, 8, 16],
+    "overviewResampling": "AVERAGE",
+    "outputDirectory": "./output",
+    "outputSuffix": "_compressed",
+    "overwriteExisting": false,
+    "creationOptions": {
+      "COMPRESS": "LZW",
+      "TILED": "YES",
+      "BIGTIFF": "IF_SAFER"
+    },
     "gdalOptions": {
       "COMPRESS": "LZW",
-      "TILED": "YES"
-    }
+      "TILED": "YES",
+      "BIGTIFF": "IF_SAFER"
+    },
+    "targetEpsg": "",
+    "resampling": "nearest"
+  },
+  {
+    "schemaVersion": 3,
+    "id": "gtiff-cog-like",
+    "name": "COG-like GeoTIFF",
+    "outputFormat": "COG-like GeoTIFF",
+    "driverName": "GTiff",
+    "outputExtension": ".cog.tif",
+    "compressionMethod": "ZSTD",
+    "compressionLevel": 9,
+    "buildOverviews": true,
+    "overviewLevels": [2, 4, 8, 16],
+    "overviewResampling": "AVERAGE",
+    "outputDirectory": "./output",
+    "outputSuffix": "_cog",
+    "overwriteExisting": false,
+    "creationOptions": {
+      "COMPRESS": "ZSTD",
+      "TILED": "YES",
+      "BLOCKXSIZE": "512",
+      "BLOCKYSIZE": "512",
+      "BIGTIFF": "IF_SAFER",
+      "COPY_SRC_OVERVIEWS": "YES"
+    },
+    "gdalOptions": {
+      "COMPRESS": "ZSTD",
+      "TILED": "YES",
+      "BLOCKXSIZE": "512",
+      "BLOCKYSIZE": "512",
+      "BIGTIFF": "IF_SAFER",
+      "COPY_SRC_OVERVIEWS": "YES"
+    },
+    "targetEpsg": "",
+    "resampling": "nearest"
   }
 ]

@@ -1,7 +1,5 @@
 #include "rastertoolbox/engine/OverviewBuilder.hpp"
 
-#include <array>
-
 #include <gdal_priv.h>
 
 #include "rastertoolbox/common/ErrorClass.hpp"
@@ -58,7 +56,7 @@ RasterJobResult OverviewBuilder::build(
 ) const {
     RasterJobResult result;
 
-    if (!request.preset.buildOverviews) {
+    if (!request.preset.buildOverviews || request.preset.overviewLevels.empty()) {
         result.success = true;
         result.message = "跳过金字塔构建";
         return result;
@@ -90,11 +88,10 @@ RasterJobResult OverviewBuilder::build(
         .phase = "构建金字塔",
     };
 
-    constexpr std::array levels{2, 4, 8, 16};
     const auto buildStatus = dataset->BuildOverviews(
-        "AVERAGE",
-        static_cast<int>(levels.size()),
-        levels.data(),
+        request.preset.overviewResampling.c_str(),
+        static_cast<int>(request.preset.overviewLevels.size()),
+        request.preset.overviewLevels.data(),
         0,
         nullptr,
         gdalProgress,

@@ -20,6 +20,7 @@ struct Task {
     std::string id;
     std::string inputPath;
     std::string outputPath;
+    std::string partialOutputPath;
     rastertoolbox::config::Preset presetSnapshot;
     TaskStatus status{TaskStatus::Pending};
     double progress{0.0};
@@ -29,6 +30,8 @@ struct Task {
     std::string details;
     std::string statusMessage;
     std::string createdAt;
+    std::string startedAt;
+    std::string finishedAt;
     std::string updatedAt;
 };
 

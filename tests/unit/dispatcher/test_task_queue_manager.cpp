@@ -14,7 +14,8 @@ int main() {
     rastertoolbox::dispatcher::Task first;
     first.id = "task-1";
     first.inputPath = "in-1.tif";
-    first.outputPath = (tempRoot / "out-1.tif").string();
+    first.outputPath = (tempRoot / "out-1.cog.tif").string();
+    first.presetSnapshot.outputExtension = ".cog.tif";
 
     std::string error;
     assert(queue.enqueue(first, error));
@@ -86,6 +87,9 @@ int main() {
     assert(canceledBeforeRun->errorClass == rastertoolbox::common::ErrorClass::TaskCanceled);
     assert(canceledBeforeRun->errorCode == "CANCELED_BEFORE_RUN");
 
+    assert(queue.removeTask("task-4", error));
+    assert(!queue.findById("task-4").has_value());
+
     const auto existingOutput = tempRoot / "existing.tif";
     std::ofstream existing(existingOutput.string());
     existing << "stub";
@@ -99,7 +103,69 @@ int main() {
     assert(!queue.enqueue(fsConflict, error));
     assert(!error.empty());
 
+    rastertoolbox::dispatcher::Task staleTempConflict;
+    staleTempConflict.id = "task-6";
+    staleTempConflict.inputPath = "in-6.tif";
+    staleTempConflict.outputPath = (tempRoot / "stale-temp.tif").string();
+    const auto staleTempPath = std::filesystem::path(staleTempConflict.outputPath + ".part-" + staleTempConflict.id);
+    std::ofstream staleTemp(staleTempPath.string());
+    staleTemp << "partial";
+    staleTemp.close();
+    error.clear();
+    assert(!queue.enqueue(staleTempConflict, error));
+    assert(error.find(".part-task-6") != std::string::npos);
+
+    rastertoolbox::dispatcher::Task retrySource;
+    retrySource.id = "task-7";
+    retrySource.inputPath = "in-7.tif";
+    retrySource.outputPath = (tempRoot / "retry.tif").string();
+    assert(queue.enqueue(retrySource, error));
+    auto runningRetrySource = queue.popNextPending();
+    assert(runningRetrySource.has_value());
+
+    rastertoolbox::engine::RasterJobResult retryFailure;
+    retryFailure.message = "engine failed";
+    retryFailure.errorClass = rastertoolbox::common::ErrorClass::TaskError;
+    retryFailure.errorCode = "ENGINE_FAILED";
+    assert(queue.markCompleted("task-7", retryFailure));
+    assert(queue.retryTask("task-7", "task-7-retry", error));
+
+    const auto retryTask = queue.findById("task-7-retry");
+    assert(retryTask.has_value());
+    assert(retryTask->status == rastertoolbox::dispatcher::TaskStatus::Pending);
+    assert(retryTask->errorClass == rastertoolbox::common::ErrorClass::None);
+    assert(retryTask->errorCode.empty());
+    assert(retryTask->progress == 0.0);
+
+    assert(queue.duplicateTask("task-1", "task-1-copy", error));
+    const auto duplicateTask = queue.findById("task-1-copy");
+    assert(duplicateTask.has_value());
+    assert(duplicateTask->status == rastertoolbox::dispatcher::TaskStatus::Pending);
+    assert(duplicateTask->inputPath == first.inputPath);
+    assert(duplicateTask->outputPath != first.outputPath);
+    assert(duplicateTask->outputPath.find("_copy") != std::string::npos);
+    assert(duplicateTask->outputPath.ends_with(".cog.tif"));
+
+    rastertoolbox::dispatcher::TaskQueueManager runningQueue;
+    rastertoolbox::dispatcher::Task removeRunning;
+    removeRunning.id = "task-8";
+    removeRunning.inputPath = "in-8.tif";
+    removeRunning.outputPath = (tempRoot / "running.tif").string();
+    assert(runningQueue.enqueue(removeRunning, error));
+    auto runningTask = runningQueue.popNextPending();
+    assert(runningTask.has_value());
+    error.clear();
+    assert(!runningQueue.removeTask("task-8", error));
+    assert(error.find("Running") != std::string::npos);
+
+    const std::size_t removedCount = queue.clearFinished();
+    assert(removedCount >= 2);
+    assert(!queue.findById("task-7").has_value());
+    assert(!queue.findById("task-4").has_value());
+    assert(queue.findById("task-1-copy").has_value());
+
     std::filesystem::remove(existingOutput);
+    std::filesystem::remove(staleTempPath);
     std::filesystem::remove_all(tempRoot);
 
     return 0;

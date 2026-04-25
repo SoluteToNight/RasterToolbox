@@ -29,6 +29,7 @@ add_executable(rastertoolbox
     src/ui/panels/QueuePanel.cpp
     src/ui/panels/LogPanel.cpp
     src/dispatcher/TaskQueueManager.cpp
+    src/dispatcher/TaskReportSerializer.cpp
     src/dispatcher/WorkerContext.cpp
     src/dispatcher/TaskDispatcherService.cpp
     src/engine/GdalRuntime.cpp

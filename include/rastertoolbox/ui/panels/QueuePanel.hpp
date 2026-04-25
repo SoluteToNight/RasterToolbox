@@ -23,6 +23,12 @@ public:
     void setOnAddTaskRequested(std::function<void()> callback);
     void setOnPauseRequested(std::function<void()> callback);
     void setOnResumeRequested(std::function<void()> callback);
+    void setOnRemoveRequested(std::function<void(const std::string&)> callback);
+    void setOnRetryRequested(std::function<void(const std::string&)> callback);
+    void setOnDuplicateRequested(std::function<void(const std::string&)> callback);
+    void setOnClearFinishedRequested(std::function<void()> callback);
+    void setOnOpenOutputFolderRequested(std::function<void(const std::string&)> callback);
+    void setOnExportTaskReportRequested(std::function<void(const std::string&)> callback);
     void setOnCancelRequested(std::function<void(const std::string&)> callback);
 
 private:
@@ -32,11 +38,23 @@ private:
     QPushButton* addTaskButton_{};
     QPushButton* pauseButton_{};
     QPushButton* resumeButton_{};
+    QPushButton* removeButton_{};
+    QPushButton* retryButton_{};
+    QPushButton* duplicateButton_{};
+    QPushButton* clearFinishedButton_{};
+    QPushButton* openOutputFolderButton_{};
+    QPushButton* exportTaskReportButton_{};
     QPushButton* cancelButton_{};
 
     std::function<void()> onAddTaskRequested_;
     std::function<void()> onPauseRequested_;
     std::function<void()> onResumeRequested_;
+    std::function<void(const std::string&)> onRemoveRequested_;
+    std::function<void(const std::string&)> onRetryRequested_;
+    std::function<void(const std::string&)> onDuplicateRequested_;
+    std::function<void()> onClearFinishedRequested_;
+    std::function<void(const std::string&)> onOpenOutputFolderRequested_;
+    std::function<void(const std::string&)> onExportTaskReportRequested_;
     std::function<void(const std::string&)> onCancelRequested_;
 };
 

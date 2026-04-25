@@ -85,6 +85,7 @@ target_sources(test_mainwindow_preset_and_log PRIVATE
     ${PROJECT_SOURCE_DIR}/src/ui/panels/QueuePanel.cpp
     ${PROJECT_SOURCE_DIR}/src/ui/panels/LogPanel.cpp
     ${PROJECT_SOURCE_DIR}/src/dispatcher/TaskQueueManager.cpp
+    ${PROJECT_SOURCE_DIR}/src/dispatcher/TaskReportSerializer.cpp
     ${PROJECT_SOURCE_DIR}/src/dispatcher/TaskDispatcherService.cpp
     ${PROJECT_SOURCE_DIR}/src/dispatcher/WorkerContext.cpp
     ${PROJECT_SOURCE_DIR}/src/engine/DatasetReader.cpp
@@ -129,3 +130,22 @@ set_tests_properties(real_data_phase6 PROPERTIES LABELS "integration;real-data;e
 add_test(NAME startup_smoke COMMAND $<TARGET_FILE:rastertoolbox> --smoke-startup)
 set_tests_properties(startup_smoke PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 set_tests_properties(startup_smoke PROPERTIES LABELS "startup;integration")
+
+add_executable(test_task_report_and_log_export integration/test_task_report_and_log_export.cpp)
+target_include_directories(test_task_report_and_log_export PRIVATE ${PROJECT_SOURCE_DIR}/include)
+target_sources(test_task_report_and_log_export PRIVATE
+    ${PROJECT_SOURCE_DIR}/src/ui/panels/LogPanel.cpp
+    ${PROJECT_SOURCE_DIR}/src/dispatcher/TaskReportSerializer.cpp
+)
+target_link_libraries(test_task_report_and_log_export PRIVATE
+    Qt6::Core
+    Qt6::Widgets
+    nlohmann_json::nlohmann_json
+)
+add_test(NAME task_report_and_log_export COMMAND test_task_report_and_log_export)
+set_tests_properties(
+    task_report_and_log_export
+    PROPERTIES
+    LABELS "integration;log"
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+)

@@ -35,6 +35,7 @@ public:
 private:
     void applyPresetToForm(const rastertoolbox::config::Preset& preset);
     [[nodiscard]] rastertoolbox::config::Preset presetFromForm() const;
+    [[nodiscard]] std::vector<int> overviewLevelsFromForm() const;
     [[nodiscard]] std::string gdalOptionsValidationError() const;
     void wireEvents();
 
@@ -47,6 +48,10 @@ private:
     QCheckBox* buildOverviewsCheck_{};
     QLineEdit* outputDirectoryEdit_{};
     QLineEdit* outputSuffixEdit_{};
+    QLineEdit* overviewLevelsEdit_{};
+    QComboBox* overviewResamplingCombo_{};
+    QLineEdit* targetEpsgEdit_{};
+    QComboBox* resamplingCombo_{};
     QCheckBox* overwriteCheck_{};
     QPlainTextEdit* gdalOptionsEdit_{};
     QPushButton* loadButton_{};

@@ -29,6 +29,10 @@ public:
     bool enqueueTask(Task task, std::string& validationError);
     void pauseQueue();
     void resumeQueue();
+    bool removeTask(const std::string& taskId, std::string& error);
+    std::size_t clearFinished(bool includeFailed = true);
+    bool retryTask(const std::string& taskId, const std::string& newTaskId, std::string& error);
+    bool duplicateTask(const std::string& taskId, const std::string& newTaskId, std::string& error);
     bool cancelTask(const std::string& taskId);
 
     [[nodiscard]] std::vector<Task> snapshot() const;

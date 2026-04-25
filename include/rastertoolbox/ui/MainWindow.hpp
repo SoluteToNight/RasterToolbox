@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <unordered_map>
 #include <string>
 #include <vector>
 
@@ -40,6 +41,12 @@ private:
     void handleAddTaskRequested();
     void handlePauseRequested();
     void handleResumeRequested();
+    void handleRemoveRequested(const std::string& taskId);
+    void handleRetryRequested(const std::string& taskId);
+    void handleDuplicateRequested(const std::string& taskId);
+    void handleClearFinishedRequested();
+    void handleOpenOutputFolderRequested(const std::string& taskId);
+    void handleExportTaskReportRequested(const std::string& taskId);
     void handleCancelRequested(const std::string& taskId);
     void setupThemeMenu();
     void applyTheme(const std::string& theme);
@@ -59,6 +66,7 @@ private:
 
     [[nodiscard]] std::string createTaskId();
     [[nodiscard]] std::vector<std::string> selectedSourcePaths() const;
+    [[nodiscard]] std::string buildBatchSummary() const;
     [[nodiscard]] std::string computeOutputPath(
         const std::string& inputPath,
         const rastertoolbox::config::Preset& preset
@@ -76,6 +84,7 @@ private:
     rastertoolbox::config::AppSettings appSettings_;
 
     std::vector<rastertoolbox::config::Preset> presets_;
+    std::unordered_map<std::string, rastertoolbox::engine::DatasetInfo> sourceMetadataCache_;
     rastertoolbox::config::Preset currentPreset_;
     bool presetIsValid_{true};
     std::string presetValidationError_;

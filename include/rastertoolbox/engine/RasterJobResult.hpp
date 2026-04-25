@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <string>
 
 #include "rastertoolbox/common/ErrorClass.hpp"
@@ -13,6 +14,9 @@ struct RasterJobResult {
     std::string errorCode;
     std::string message;
     std::string details;
+    std::string outputPath;
+    std::string partialOutputPath;
+    std::uintmax_t bytesWritten{0};
 };
 
 } // namespace rastertoolbox::engine
