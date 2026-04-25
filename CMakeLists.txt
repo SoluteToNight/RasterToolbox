@@ -2,9 +2,14 @@ cmake_minimum_required(VERSION 3.20)
 
 project(RasterToolbox VERSION 0.1.0 LANGUAGES CXX)
 
-set(CMAKE_CXX_STANDARD 20)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_EXTENSIONS OFF)
+if(MSVC AND NOT CMAKE_CXX_COMPILE_FEATURES)
+    message(WARNING "CMake does not recognize MSVC ${CMAKE_CXX_COMPILER_VERSION}; forcing /std:c++20")
+    add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:/std:c++20>")
+else()
+    set(CMAKE_CXX_STANDARD 20)
+    set(CMAKE_CXX_STANDARD_REQUIRED ON)
+    set(CMAKE_CXX_EXTENSIONS OFF)
+endif()
 
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTOUIC ON)

@@ -64,23 +64,6 @@
         "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
         "VCPKG_TARGET_TRIPLET": "x64-windows"
       }
-    },
-    {
-      "name": "windows-msys2",
-      "displayName": "Windows vcpkg (Local)",
-      "generator": "Ninja",
-      "binaryDir": "${sourceDir}/build/windows-msys2",
-      "condition": {
-        "type": "equals",
-        "lhs": "${hostSystemName}",
-        "rhs": "Windows"
-      },
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Debug",
-        "BUILD_TESTING": "ON",
-        "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
-        "VCPKG_TARGET_TRIPLET": "x64-windows"
-      }
     }
   ],
   "buildPresets": [
@@ -103,10 +86,6 @@
     {
       "name": "ci-windows",
       "configurePreset": "ci-windows"
-    },
-    {
-      "name": "windows-msys2",
-      "configurePreset": "windows-msys2"
     }
   ],
   "testPresets": [
@@ -139,13 +118,6 @@
       },
       "environment": {
         "QT_QPA_PLATFORM": "offscreen"
-      }
-    },
-    {
-      "name": "windows-msys2",
-      "configurePreset": "windows-msys2",
-      "output": {
-        "outputOnFailure": true
       }
     }
   ]
