@@ -16,10 +16,43 @@ int main() {
     assert(!rastertoolbox::config::JsonSchemas::validatePreset(preset, error));
 
     preset.outputFormat = "GTiff";
-    preset.compressionLevel = 10;
+    preset.compressionLevel = 101;
     assert(!rastertoolbox::config::JsonSchemas::validatePreset(preset, error));
 
+    preset.compressionLevel = 80;
+    preset.compressionMethod = "WEBP_QUALITY";
+    assert(rastertoolbox::config::JsonSchemas::validatePreset(preset, error));
+
     preset.compressionLevel = 6;
+    preset.compressionMethod = "ZSTD";
+    assert(rastertoolbox::config::JsonSchemas::validatePreset(preset, error));
+
+    preset.compressionMethod = "LZMA";
+    assert(rastertoolbox::config::JsonSchemas::validatePreset(preset, error));
+
+    preset.compressionMethod = "JXL";
+    assert(rastertoolbox::config::JsonSchemas::validatePreset(preset, error));
+
+    preset.compressionMethod = "CCITTFAX4";
+    assert(rastertoolbox::config::JsonSchemas::validatePreset(preset, error));
+
+    preset.compressionMethod = "unsupported";
+    assert(!rastertoolbox::config::JsonSchemas::validatePreset(preset, error));
+
+    preset.compressionMethod = "LZW";
+    preset.targetPixelSizeX = 10.0;
+    preset.targetPixelSizeY = 10.0;
+    assert(rastertoolbox::config::JsonSchemas::validatePreset(preset, error));
+
+    preset.targetPixelSizeY = 0.0;
+    assert(!rastertoolbox::config::JsonSchemas::validatePreset(preset, error));
+
+    preset.targetPixelSizeX = -1.0;
+    preset.targetPixelSizeY = -1.0;
+    assert(!rastertoolbox::config::JsonSchemas::validatePreset(preset, error));
+
+    preset.targetPixelSizeX = 0.0;
+    preset.targetPixelSizeY = 0.0;
     preset.gdalOptions = nlohmann::json::array();
     assert(!rastertoolbox::config::JsonSchemas::validatePreset(preset, error));
 

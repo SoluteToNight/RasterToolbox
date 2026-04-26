@@ -42,6 +42,8 @@ Preset fromJson(const nlohmann::json& payload) {
         preset.creationOptions = preset.gdalOptions;
     }
     preset.targetEpsg = payload.value("targetEpsg", "");
+    preset.targetPixelSizeX = payload.value("targetPixelSizeX", 0.0);
+    preset.targetPixelSizeY = payload.value("targetPixelSizeY", 0.0);
     preset.resampling = payload.value("resampling", "nearest");
     return preset;
 }
@@ -65,6 +67,8 @@ nlohmann::json toJson(const Preset& preset) {
         {"creationOptions", preset.creationOptions},
         {"gdalOptions", preset.gdalOptions},
         {"targetEpsg", preset.targetEpsg},
+        {"targetPixelSizeX", preset.targetPixelSizeX},
+        {"targetPixelSizeY", preset.targetPixelSizeY},
         {"resampling", preset.resampling},
     };
 }

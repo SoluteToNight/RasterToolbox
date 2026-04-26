@@ -70,6 +70,31 @@ bool isAllowedWarpResampling(const std::string& value) {
     return allowed.contains(lower(trim(value)));
 }
 
+bool isAllowedCompressionMethod(const std::string& value) {
+    static const std::unordered_set<std::string> allowed = {
+        "NONE",
+        "LZW",
+        "PACKBITS",
+        "JPEG",
+        "CCITTRLE",
+        "CCITTFAX3",
+        "CCITTFAX4",
+        "DEFLATE",
+        "LZMA",
+        "ZSTD",
+        "WEBP",
+        "LERC",
+        "LERC_DEFLATE",
+        "LERC_ZSTD",
+        "JXL",
+        "PNG_DEFLATE",
+        "JPEG_QUALITY",
+        "WEBP_QUALITY",
+        "WEBP_LOSSLESS",
+    };
+    return allowed.contains(upper(trim(value)));
+}
+
 } // namespace
 
 bool JsonSchemas::validatePreset(const Preset& preset, std::string& error) {
@@ -81,8 +106,20 @@ bool JsonSchemas::validatePreset(const Preset& preset, std::string& error) {
         error = "driverName 不能为空";
         return false;
     }
-    if (preset.compressionLevel < 0 || preset.compressionLevel > 9) {
-        error = "compressionLevel 必须在 0~9";
+    if (preset.compressionLevel < 0 || preset.compressionLevel > 100) {
+        error = "compressionLevel 必须在 0~100";
+        return false;
+    }
+    if (!trim(preset.compressionMethod).empty() && !isAllowedCompressionMethod(preset.compressionMethod)) {
+        error = "compressionMethod 不受支持";
+        return false;
+    }
+    if (preset.targetPixelSizeX < 0.0 || preset.targetPixelSizeY < 0.0) {
+        error = "targetPixelSize 必须大于等于 0";
+        return false;
+    }
+    if ((preset.targetPixelSizeX > 0.0) != (preset.targetPixelSizeY > 0.0)) {
+        error = "targetPixelSizeX 与 targetPixelSizeY 必须同时设置";
         return false;
     }
     if (preset.outputSuffix.empty()) {

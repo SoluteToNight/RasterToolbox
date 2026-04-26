@@ -14,6 +14,8 @@
 
 #include <nlohmann/json.hpp>
 
+#include <QFrame>
+
 #include "rastertoolbox/common/ErrorClass.hpp"
 
 namespace rastertoolbox::ui::panels {
@@ -146,29 +148,43 @@ LogPanel::LogPanel(QWidget* parent) : QWidget(parent) {
     layout->setContentsMargins(18, 18, 18, 18);
     layout->setSpacing(12);
 
+    auto* headerBar = new QFrame(this);
+    headerBar->setObjectName("logHeaderBar");
+    headerBar->setProperty("surfaceRole", QStringLiteral("logHeader"));
+    auto* headerLayout = new QHBoxLayout(headerBar);
+    headerLayout->setContentsMargins(0, 0, 0, 0);
+    headerLayout->setSpacing(10);
+
+    auto* titleLabel = new QLabel("运行日志", headerBar);
+    titleLabel->setObjectName("logTitleLabel");
+    titleLabel->setProperty("semanticRole", QStringLiteral("sectionTitle"));
+    headerLayout->addWidget(titleLabel);
+    headerLayout->addStretch(1);
+
+    exportTextButton_ = new QPushButton("导出 .log", headerBar);
+    exportTextButton_->setObjectName("exportLogTextButton");
+    exportTextButton_->setProperty("buttonRole", QStringLiteral("secondary"));
+    exportJsonButton_ = new QPushButton("导出 .json", headerBar);
+    exportJsonButton_->setObjectName("exportLogJsonButton");
+    exportJsonButton_->setProperty("buttonRole", QStringLiteral("secondary"));
+    headerLayout->addWidget(exportTextButton_);
+    headerLayout->addWidget(exportJsonButton_);
+    layout->addWidget(headerBar);
+
+    auto* filterLayout = new QHBoxLayout();
+    filterLayout->setSpacing(10);
     levelFilter_ = new QComboBox(this);
     levelFilter_->setObjectName("logLevelFilter");
     levelFilter_->setProperty("surfaceRole", QStringLiteral("logFilter"));
     levelFilter_->addItems({"Info", "Warning", "Error", "Trace"});
-    layout->addWidget(levelFilter_);
+    filterLayout->addWidget(levelFilter_);
 
     taskFilter_ = new QLineEdit(this);
     taskFilter_->setObjectName("logTaskFilter");
     taskFilter_->setProperty("surfaceRole", QStringLiteral("logFilter"));
     taskFilter_->setPlaceholderText("按 TaskId 过滤（留空显示全部）");
-    layout->addWidget(taskFilter_);
-
-    auto* exportLayout = new QHBoxLayout();
-    exportLayout->setSpacing(10);
-    exportTextButton_ = new QPushButton("导出 .log", this);
-    exportTextButton_->setObjectName("exportLogTextButton");
-    exportTextButton_->setProperty("buttonRole", QStringLiteral("secondary"));
-    exportJsonButton_ = new QPushButton("导出 .json", this);
-    exportJsonButton_->setObjectName("exportLogJsonButton");
-    exportJsonButton_->setProperty("buttonRole", QStringLiteral("secondary"));
-    exportLayout->addWidget(exportTextButton_);
-    exportLayout->addWidget(exportJsonButton_);
-    layout->addLayout(exportLayout);
+    filterLayout->addWidget(taskFilter_, 1);
+    layout->addLayout(filterLayout);
 
     exportStatusLabel_ = new QLabel(this);
     exportStatusLabel_->setObjectName("logExportStatusLabel");

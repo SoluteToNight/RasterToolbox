@@ -11,10 +11,17 @@
 #include <QDesktopServices>
 #include <QFileDialog>
 #include <QFile>
+#include <QFrame>
+#include <QHBoxLayout>
 #include <QImage>
+#include <QLabel>
 #include <QMenuBar>
+#include <QMessageBox>
+#include <QPushButton>
 #include <QSplitter>
 #include <QUrl>
+#include <QVBoxLayout>
+#include <QWidget>
 
 #include "rastertoolbox/common/Timestamp.hpp"
 #include "rastertoolbox/config/JsonSchemas.hpp"
@@ -47,25 +54,41 @@ MainWindow::MainWindow()
     setWindowTitle("RasterToolbox");
     resize(1500, 900);
 
-    auto* splitter = new QSplitter(this);
+    auto* root = new QWidget(this);
+    root->setObjectName("mainRoot");
+    auto* rootLayout = new QVBoxLayout(root);
+    rootLayout->setContentsMargins(18, 14, 18, 12);
+    rootLayout->setSpacing(12);
+    rootLayout->addWidget(setupHeader());
+
+    auto* splitter = new QSplitter(root);
     splitter->setObjectName("mainSplitter");
-    splitter->setHandleWidth(12);
+    splitter->setHandleWidth(10);
     splitter->setChildrenCollapsible(false);
 
     sourcePanel_ = new panels::SourcePanel(splitter);
     presetPanel_ = new panels::PresetPanel(splitter);
-    queuePanel_ = new panels::QueuePanel(splitter);
-    logPanel_ = new panels::LogPanel(splitter);
+    auto* rightColumn = new QWidget(splitter);
+    rightColumn->setObjectName("queueLogColumn");
+    auto* rightLayout = new QVBoxLayout(rightColumn);
+    rightLayout->setContentsMargins(0, 0, 0, 0);
+    rightLayout->setSpacing(12);
+    queuePanel_ = new panels::QueuePanel(rightColumn);
+    logPanel_ = new panels::LogPanel(rightColumn);
+    rightLayout->addWidget(queuePanel_, 3);
+    rightLayout->addWidget(logPanel_, 2);
 
     splitter->addWidget(sourcePanel_);
     splitter->addWidget(presetPanel_);
-    splitter->addWidget(queuePanel_);
-    splitter->addWidget(logPanel_);
+    splitter->addWidget(rightColumn);
 
-    splitter->setSizes({340, 340, 520, 360});
-    setCentralWidget(splitter);
+    splitter->setSizes({300, 360, 760});
+    rootLayout->addWidget(splitter, 1);
+    rootLayout->addWidget(setupStatusBar());
+    setCentralWidget(root);
 
     sourcePanel_->setOnImportRequested([this]() { handleImportRequested(); });
+    sourcePanel_->setOnClearRequested([this]() { handleClearSourcesRequested(); });
     sourcePanel_->setOnSourceSelected([this](const std::string& path) { handleSourceSelected(path); });
 
     presetPanel_->setOnPresetChanged([this](const rastertoolbox::config::Preset& preset) {
@@ -75,6 +98,8 @@ MainWindow::MainWindow()
     presetPanel_->setOnSaveRequested([this](const rastertoolbox::config::Preset& preset) {
         handleSavePresetRequested(preset);
     });
+    presetPanel_->setOnBrowseOutputDirectoryRequested([this]() { handleOutputDirectoryBrowseRequested(); });
+    presetPanel_->setOnResetRequested([this]() { handleResetPresetRequested(); });
 
     queuePanel_->setOnAddTaskRequested([this]() { handleAddTaskRequested(); });
     queuePanel_->setOnPauseRequested([this]() { handlePauseRequested(); });
@@ -103,6 +128,7 @@ MainWindow::MainWindow()
     applyTheme(appSettings_.theme);
 
     loadBuiltInPresets();
+    refreshStatusSummary();
 
     appendLog(
         rastertoolbox::dispatcher::EventSource::Ui,
@@ -141,6 +167,72 @@ void MainWindow::setupThemeMenu() {
     });
 }
 
+QWidget* MainWindow::setupHeader() {
+    auto* header = new QFrame(this);
+    header->setObjectName("appHeaderBar");
+    header->setProperty("surfaceRole", QStringLiteral("header"));
+    auto* layout = new QHBoxLayout(header);
+    layout->setContentsMargins(12, 8, 12, 8);
+    layout->setSpacing(12);
+
+    auto* logo = new QLabel("RT", header);
+    logo->setObjectName("appLogoLabel");
+    logo->setAlignment(Qt::AlignCenter);
+    logo->setProperty("surfaceRole", QStringLiteral("logo"));
+    layout->addWidget(logo);
+
+    auto* title = new QLabel("RasterToolbox", header);
+    title->setObjectName("appTitleLabel");
+    title->setProperty("semanticRole", QStringLiteral("title"));
+    layout->addWidget(title);
+    layout->addStretch(1);
+
+    helpButton_ = new QPushButton("帮助", header);
+    helpButton_->setObjectName("helpButton");
+    helpButton_->setProperty("buttonRole", QStringLiteral("secondary"));
+    layout->addWidget(helpButton_);
+    connect(helpButton_, &QPushButton::clicked, this, [this]() { handleHelpRequested(); });
+
+    themeToggleButton_ = new QPushButton("浅色", header);
+    themeToggleButton_->setObjectName("themeToggleButton");
+    themeToggleButton_->setProperty("buttonRole", QStringLiteral("secondary"));
+    layout->addWidget(themeToggleButton_);
+    connect(themeToggleButton_, &QPushButton::clicked, this, [this]() {
+        applyTheme(appSettings_.theme == "light" ? "dark" : "light");
+    });
+
+    return header;
+}
+
+QWidget* MainWindow::setupStatusBar() {
+    auto* statusBar = new QFrame(this);
+    statusBar->setObjectName("statusSummaryBar");
+    statusBar->setProperty("surfaceRole", QStringLiteral("statusBar"));
+    auto* layout = new QHBoxLayout(statusBar);
+    layout->setContentsMargins(12, 6, 12, 6);
+    layout->setSpacing(14);
+
+    statusSuccessCountLabel_ = new QLabel("成功: 0", statusBar);
+    statusSuccessCountLabel_->setObjectName("statusSuccessCountLabel");
+    statusRunningCountLabel_ = new QLabel("运行中: 0", statusBar);
+    statusRunningCountLabel_->setObjectName("statusRunningCountLabel");
+    statusPendingCountLabel_ = new QLabel("等待中: 0", statusBar);
+    statusPendingCountLabel_->setObjectName("statusPendingCountLabel");
+    statusPresetLabel_ = new QLabel("当前预设: -", statusBar);
+    statusPresetLabel_->setObjectName("statusPresetLabel");
+    statusOutputDirectoryLabel_ = new QLabel("输出: -", statusBar);
+    statusOutputDirectoryLabel_->setObjectName("statusOutputDirectoryLabel");
+
+    layout->addWidget(statusSuccessCountLabel_);
+    layout->addWidget(statusRunningCountLabel_);
+    layout->addWidget(statusPendingCountLabel_);
+    layout->addSpacing(12);
+    layout->addWidget(statusPresetLabel_, 1);
+    layout->addWidget(statusOutputDirectoryLabel_, 1);
+
+    return statusBar;
+}
+
 void MainWindow::applyTheme(const std::string& theme) {
     const bool isLight = theme == "light";
     appSettings_.theme = isLight ? "light" : "dark";
@@ -152,6 +244,9 @@ void MainWindow::applyTheme(const std::string& theme) {
     }
     if (lightThemeAction_ != nullptr) {
         lightThemeAction_->setChecked(isLight);
+    }
+    if (themeToggleButton_ != nullptr) {
+        themeToggleButton_->setText(isLight ? "暗色" : "浅色");
     }
 
     const QString stylePath = isLight ? ":/styles/light.qss" : ":/styles/modern.qss";
@@ -244,7 +339,7 @@ void MainWindow::handleSourceSelected(const std::string& path) {
     std::string error;
     auto metadata = datasetReader_.readMetadata(path, error);
     if (!metadata.has_value()) {
-        sourcePanel_->showError(QString::fromStdString("导入失败: " + error));
+        sourcePanel_->showSourceError(QString::fromStdString("导入失败: " + error));
         sourcePanel_->clearPreview("预览不可用");
         appendLog(
             rastertoolbox::dispatcher::EventSource::Engine,
@@ -328,6 +423,7 @@ void MainWindow::handlePresetChanged(const rastertoolbox::config::Preset& preset
     presetIsValid_ = true;
     presetValidationError_.clear();
     presetPanel_->showValidationMessage("预设校验通过");
+    refreshStatusSummary();
 }
 
 void MainWindow::handleLoadPresetRequested() {
@@ -345,6 +441,10 @@ void MainWindow::handleLoadPresetRequested() {
         const auto loaded = presetRepository_.loadFromFile(path.toStdString());
         presets_.insert(presets_.end(), loaded.begin(), loaded.end());
         presetPanel_->setPresets(presets_);
+        if (!presets_.empty()) {
+            currentPreset_ = presets_.front();
+        }
+        refreshStatusSummary();
 
         appendLog(
             rastertoolbox::dispatcher::EventSource::Config,
@@ -412,6 +512,54 @@ void MainWindow::handleSavePresetRequested(const rastertoolbox::config::Preset& 
             "PRESET_SAVE_FAILED"
         );
     }
+}
+
+void MainWindow::handleClearSourcesRequested() {
+    sourceMetadataCache_.clear();
+    sourcePanel_->clearSources();
+    appendLog(
+        rastertoolbox::dispatcher::EventSource::Ui,
+        rastertoolbox::dispatcher::LogLevel::Info,
+        "源数据列表已清空",
+        {},
+        -1.0,
+        "source-clear"
+    );
+}
+
+void MainWindow::handleOutputDirectoryBrowseRequested() {
+    const QString directory = QFileDialog::getExistingDirectory(
+        this,
+        "选择输出目录",
+        QString::fromStdString(currentPreset_.outputDirectory)
+    );
+    if (directory.isEmpty()) {
+        return;
+    }
+
+    presetPanel_->setOutputDirectory(directory);
+    refreshStatusSummary();
+}
+
+void MainWindow::handleResetPresetRequested() {
+    presetPanel_->resetCurrentPresetForm();
+    appendLog(
+        rastertoolbox::dispatcher::EventSource::Config,
+        rastertoolbox::dispatcher::LogLevel::Info,
+        "当前预设已重置为默认值",
+        {},
+        -1.0,
+        "preset-reset"
+    );
+    refreshStatusSummary();
+}
+
+void MainWindow::handleHelpRequested() {
+    QMessageBox::information(
+        this,
+        "RasterToolbox 帮助",
+        "RasterToolbox 用于批量导入栅格数据、配置转换预设、管理转换队列并导出日志和任务报告。"
+    );
 }
 
 void MainWindow::handleAddTaskRequested() {
@@ -724,7 +872,60 @@ void MainWindow::handleCancelRequested(const std::string& taskId) {
 }
 
 void MainWindow::refreshQueueView(const std::vector<rastertoolbox::dispatcher::Task>& tasks) {
+    latestTasks_ = tasks;
     queuePanel_->setTasks(tasks);
+    refreshStatusSummary(tasks);
+}
+
+void MainWindow::refreshStatusSummary() {
+    refreshStatusSummary(latestTasks_);
+}
+
+void MainWindow::refreshStatusSummary(const std::vector<rastertoolbox::dispatcher::Task>& tasks) {
+    std::size_t successCount = 0;
+    std::size_t runningCount = 0;
+    std::size_t pendingCount = 0;
+
+    for (const auto& task : tasks) {
+        using rastertoolbox::dispatcher::TaskStatus;
+        switch (task.status) {
+        case TaskStatus::Finished:
+            ++successCount;
+            break;
+        case TaskStatus::Running:
+            ++runningCount;
+            break;
+        case TaskStatus::Pending:
+        case TaskStatus::Paused:
+            ++pendingCount;
+            break;
+        case TaskStatus::Canceled:
+        case TaskStatus::Failed:
+            break;
+        }
+    }
+
+    if (statusSuccessCountLabel_ != nullptr) {
+        statusSuccessCountLabel_->setText(QString("成功: %1").arg(successCount));
+    }
+    if (statusRunningCountLabel_ != nullptr) {
+        statusRunningCountLabel_->setText(QString("运行中: %1").arg(runningCount));
+    }
+    if (statusPendingCountLabel_ != nullptr) {
+        statusPendingCountLabel_->setText(QString("等待中: %1").arg(pendingCount));
+    }
+    if (statusPresetLabel_ != nullptr) {
+        statusPresetLabel_->setText(
+            QString("当前预设: %1").arg(QString::fromStdString(currentPreset_.name.empty()
+                ? currentPreset_.outputFormat
+                : currentPreset_.name))
+        );
+    }
+    if (statusOutputDirectoryLabel_ != nullptr) {
+        statusOutputDirectoryLabel_->setText(
+            QString("输出: %1").arg(QString::fromStdString(currentPreset_.outputDirectory))
+        );
+    }
 }
 
 void MainWindow::appendLog(

@@ -25,6 +25,8 @@ struct Preset {
     nlohmann::json creationOptions = nlohmann::json::object();
     nlohmann::json gdalOptions = nlohmann::json::object();
     std::string targetEpsg;
+    double targetPixelSizeX{0.0};
+    double targetPixelSizeY{0.0};
     std::string resampling{"nearest"};
 };
 

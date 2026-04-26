@@ -1,12 +1,16 @@
 #include <cassert>
 #include <QAction>
 #include <QApplication>
+#include <QCheckBox>
 #include <QComboBox>
+#include <QDoubleSpinBox>
 #include <QLabel>
 #include <QLineEdit>
 #include <QPlainTextEdit>
 #include <QPushButton>
+#include <QSpinBox>
 #include <QTableWidget>
+#include <QTimer>
 
 #include <gdal_priv.h>
 
@@ -53,11 +57,66 @@ int main(int argc, char** argv) {
     assert(queuePanel != nullptr);
     assert(logPanel != nullptr);
 
+    auto* appHeaderBar = window.findChild<QWidget*>("appHeaderBar");
+    auto* themeToggleButton = window.findChild<QPushButton*>("themeToggleButton");
+    auto* helpButton = window.findChild<QPushButton*>("helpButton");
+    auto* statusSummaryBar = window.findChild<QWidget*>("statusSummaryBar");
+    auto* statusSuccessCountLabel = window.findChild<QLabel*>("statusSuccessCountLabel");
+    auto* statusRunningCountLabel = window.findChild<QLabel*>("statusRunningCountLabel");
+    auto* statusPendingCountLabel = window.findChild<QLabel*>("statusPendingCountLabel");
+    auto* statusPresetLabel = window.findChild<QLabel*>("statusPresetLabel");
+    auto* statusOutputDirectoryLabel = window.findChild<QLabel*>("statusOutputDirectoryLabel");
+    assert(appHeaderBar != nullptr);
+    assert(themeToggleButton != nullptr);
+    assert(helpButton != nullptr);
+    assert(statusSummaryBar != nullptr);
+    assert(statusSuccessCountLabel != nullptr);
+    assert(statusRunningCountLabel != nullptr);
+    assert(statusPendingCountLabel != nullptr);
+    assert(statusPresetLabel != nullptr);
+    assert(statusOutputDirectoryLabel != nullptr);
+
+    rastertoolbox::ui::panels::SourcePanel isolatedSourcePanel;
+    isolatedSourcePanel.addSourcePath(QString::fromStdString(tempDatasetPath.string()));
+    auto* isolatedSourceTable = isolatedSourcePanel.findChild<QTableWidget*>("sourceTable");
+    assert(isolatedSourceTable != nullptr);
+    assert(isolatedSourceTable->rowCount() == 1);
+    assert(isolatedSourceTable->item(0, 1)->text().contains("未读取"));
+
     sourcePanel->addSourcePath(QString::fromStdString(tempDatasetPath.string()));
     app.processEvents();
+    auto* sourceTable = sourcePanel->findChild<QTableWidget*>("sourceTable");
+    auto* sourceDetailPanel = sourcePanel->findChild<QWidget*>("sourceDetailPanel");
+    auto* sourceMetadataDetailsButton = sourcePanel->findChild<QPushButton*>("sourceMetadataDetailsButton");
+    auto* sourceSelectionSummaryLabel = sourcePanel->findChild<QLabel*>("sourceSelectionSummaryLabel");
+    assert(sourceTable != nullptr);
+    assert(sourceDetailPanel != nullptr);
+    assert(sourceMetadataDetailsButton != nullptr);
+    assert(sourceSelectionSummaryLabel != nullptr);
+    assert(sourceTable->rowCount() == 1);
+    assert(sourceTable->item(0, 1)->text().contains("GTiff"));
+    assert(sourceTable->item(0, 2)->text() == "1");
+    auto* metadataView = sourcePanel->findChild<QTextEdit*>("metadataView");
+    assert(metadataView != nullptr);
+    assert(sourceMetadataDetailsButton->text() == "隐藏完整元数据");
+    sourceMetadataDetailsButton->click();
+    app.processEvents();
+    assert(metadataView->isHidden());
+    assert(sourceMetadataDetailsButton->text() == "查看完整元数据");
+    sourceMetadataDetailsButton->click();
+    app.processEvents();
+    assert(!metadataView->isHidden());
+    assert(sourceMetadataDetailsButton->text() == "隐藏完整元数据");
     auto* batchSummaryLabel = sourcePanel->findChild<QLabel*>("batchSummaryLabel");
     assert(batchSummaryLabel != nullptr);
     assert(batchSummaryLabel->text().contains("数量: 1"));
+
+    sourcePanel->addSourcePath("/tmp/rastertoolbox-missing-ui-source.tif");
+    app.processEvents();
+    assert(sourceTable->rowCount() == 2);
+    assert(sourceTable->item(1, 1)->text().contains("读取失败"));
+    sourceTable->selectRow(0);
+    app.processEvents();
 
     auto* darkThemeAction = window.findChild<QAction*>("themeDarkAction");
     auto* lightThemeAction = window.findChild<QAction*>("themeLightAction");
@@ -78,14 +137,18 @@ int main(int argc, char** argv) {
     assert(!lightThemeAction->isChecked());
     assert(window.property("theme").toString() == "dark");
 
+    themeToggleButton->click();
+    app.processEvents();
+    assert(window.property("theme").toString() == "light");
+
     sourcePanel->addSourcePath("/tmp/rastertoolbox-invalid-preset-source.tif");
     app.processEvents();
 
-    auto* formatEdit = presetPanel->findChild<QLineEdit*>("outputFormatEdit");
-    assert(formatEdit != nullptr);
-    formatEdit->setText("");
-    QMetaObject::invokeMethod(formatEdit, "editingFinished", Qt::DirectConnection);
+    auto* outputFormatCombo = presetPanel->findChild<QComboBox*>("outputFormatCombo");
+    assert(outputFormatCombo != nullptr);
+    outputFormatCombo->setCurrentText("");
     app.processEvents();
+    assert(sourceTable->item(0, 1)->text().contains("GTiff"));
 
     auto* addTaskButton = queuePanel->findChild<QPushButton*>("addTaskButton");
     auto* pauseQueueButton = queuePanel->findChild<QPushButton*>("pauseQueueButton");
@@ -95,8 +158,21 @@ int main(int argc, char** argv) {
     auto* clearFinishedButton = queuePanel->findChild<QPushButton*>("clearFinishedButton");
     auto* exportTaskReportButton = queuePanel->findChild<QPushButton*>("exportTaskReportButton");
     auto* cancelButton = queuePanel->findChild<QPushButton*>("cancelTaskButton");
+    auto* clearSourcesButton = sourcePanel->findChild<QPushButton*>("clearSourcesButton");
+    auto* browseOutputDirectoryButton = presetPanel->findChild<QPushButton*>("browseOutputDirectoryButton");
+    auto* selectProjectionButton = presetPanel->findChild<QPushButton*>("selectProjectionButton");
+    auto* compressionMethodCombo = presetPanel->findChild<QComboBox*>("compressionMethodCombo");
+    auto* compressionLevelSpin = presetPanel->findChild<QSpinBox*>("compressionLevelSpin");
+    auto* compressionPredictorCombo = presetPanel->findChild<QComboBox*>("compressionPredictorCombo");
+    auto* compressionMaxZErrorSpin = presetPanel->findChild<QDoubleSpinBox*>("compressionMaxZErrorSpin");
+    auto* compressionWebpLosslessCheck = presetPanel->findChild<QCheckBox*>("compressionWebpLosslessCheck");
+    auto* targetPixelSizeXSpin = presetPanel->findChild<QDoubleSpinBox*>("targetPixelSizeXSpin");
+    auto* targetPixelSizeYSpin = presetPanel->findChild<QDoubleSpinBox*>("targetPixelSizeYSpin");
+    auto* resetPresetButton = presetPanel->findChild<QPushButton*>("resetPresetButton");
     auto* exportLogTextButton = logPanel->findChild<QPushButton*>("exportLogTextButton");
     auto* exportLogJsonButton = logPanel->findChild<QPushButton*>("exportLogJsonButton");
+    auto* logHeaderBar = logPanel->findChild<QWidget*>("logHeaderBar");
+    auto* logTitleLabel = logPanel->findChild<QLabel*>("logTitleLabel");
     assert(addTaskButton != nullptr);
     assert(pauseQueueButton != nullptr);
     assert(duplicateTaskButton != nullptr);
@@ -105,15 +181,108 @@ int main(int argc, char** argv) {
     assert(clearFinishedButton != nullptr);
     assert(exportTaskReportButton != nullptr);
     assert(cancelButton != nullptr);
+    assert(clearSourcesButton != nullptr);
+    assert(browseOutputDirectoryButton != nullptr);
+    assert(selectProjectionButton != nullptr);
+    assert(compressionMethodCombo != nullptr);
+    assert(compressionLevelSpin != nullptr);
+    assert(compressionPredictorCombo != nullptr);
+    assert(compressionMaxZErrorSpin != nullptr);
+    assert(compressionWebpLosslessCheck != nullptr);
+    assert(targetPixelSizeXSpin != nullptr);
+    assert(targetPixelSizeYSpin != nullptr);
+    assert(resetPresetButton != nullptr);
     assert(exportLogTextButton != nullptr);
     assert(exportLogJsonButton != nullptr);
+    assert(logHeaderBar != nullptr);
+    assert(logTitleLabel != nullptr);
     assert(addTaskButton->property("buttonRole").toString() == "primary");
     assert(pauseQueueButton->property("buttonRole").toString() == "secondary");
     assert(cancelButton->property("buttonRole").toString() == "danger");
     assert(exportLogTextButton->property("buttonRole").toString() == "secondary");
+    assert(compressionMethodCombo->findText("ZSTD") >= 0);
+    assert(compressionMethodCombo->findText("LERC_ZSTD") >= 0);
+    assert(compressionMethodCombo->findText("LZMA") >= 0);
+    assert(compressionMethodCombo->findText("JXL") >= 0);
+    assert(compressionMethodCombo->findText("CCITTFAX4") >= 0);
+
+    compressionMethodCombo->setCurrentText("ZSTD");
+    app.processEvents();
+    assert(!compressionLevelSpin->isHidden());
+    assert(compressionLevelSpin->minimum() == 1);
+    assert(compressionLevelSpin->maximum() == 22);
+    compressionLevelSpin->setValue(12);
+    compressionPredictorCombo->setCurrentText("FLOATING_POINT");
+    app.processEvents();
+    auto zstdPreset = presetPanel->currentPreset();
+    assert(zstdPreset.creationOptions["COMPRESS"] == "ZSTD");
+    assert(zstdPreset.creationOptions["ZSTD_LEVEL"] == "12");
+    assert(zstdPreset.creationOptions["PREDICTOR"] == "3");
+
+    compressionMethodCombo->setCurrentText("LERC_ZSTD");
+    app.processEvents();
+    assert(!compressionMaxZErrorSpin->isHidden());
+    compressionMaxZErrorSpin->setValue(0.25);
+    app.processEvents();
+    auto lercPreset = presetPanel->currentPreset();
+    assert(lercPreset.creationOptions["MAX_Z_ERROR"] == "0.25");
+
+    compressionMethodCombo->setCurrentText("WEBP");
+    app.processEvents();
+    assert(!compressionWebpLosslessCheck->isHidden());
+    compressionLevelSpin->setValue(80);
+    compressionWebpLosslessCheck->setChecked(true);
+    app.processEvents();
+    auto compressionPreset = presetPanel->currentPreset();
+    assert(compressionPreset.compressionMethod == "WEBP");
+    assert(compressionPreset.creationOptions["COMPRESS"] == "WEBP");
+    assert(compressionPreset.creationOptions["WEBP_LEVEL"] == "80");
+    assert(compressionPreset.creationOptions["WEBP_LOSSLESS"] == "TRUE");
+    auto* gdalOptionsEdit = presetPanel->findChild<QPlainTextEdit*>("gdalOptionsEdit");
+    assert(gdalOptionsEdit != nullptr);
+    assert(gdalOptionsEdit->toPlainText().contains("\"COMPRESS\": \"WEBP\""));
+
+    outputFormatCombo->setCurrentText("PNG Image");
+    app.processEvents();
+    assert(compressionMethodCombo->currentText() == "PNG_DEFLATE");
+    assert(compressionLevelSpin->minimum() == 0);
+    assert(compressionLevelSpin->maximum() == 9);
+    compressionLevelSpin->setValue(8);
+    app.processEvents();
+    auto pngCompressionPreset = presetPanel->currentPreset();
+    assert(pngCompressionPreset.driverName == "PNG");
+    assert(pngCompressionPreset.compressionMethod == "PNG_DEFLATE");
+    assert(pngCompressionPreset.creationOptions["ZLEVEL"] == "8");
+    assert(!pngCompressionPreset.creationOptions.contains("COMPRESS"));
+
+    auto* targetEpsgEdit = presetPanel->findChild<QLineEdit*>("targetEpsgEdit");
+    assert(targetEpsgEdit != nullptr);
+    targetEpsgEdit->setText("EPSG:4326");
+    QMetaObject::invokeMethod(targetEpsgEdit, "editingFinished", Qt::DirectConnection);
+    targetPixelSizeXSpin->setValue(20.0);
+    targetPixelSizeYSpin->setValue(20.0);
+    app.processEvents();
+    auto directPreset = presetPanel->currentPreset();
+    assert(directPreset.targetEpsg == "EPSG:4326");
+    assert(directPreset.targetPixelSizeX == 20.0);
+    assert(directPreset.targetPixelSizeY == 20.0);
+
+    QTimer::singleShot(0, [&app]() {
+        auto* dialog = app.activeModalWidget();
+        assert(dialog != nullptr);
+        auto* epsgEdit = dialog->findChild<QLineEdit*>("projectionDialogEpsgEdit");
+        auto* acceptButton = dialog->findChild<QPushButton*>("projectionDialogAcceptButton");
+        assert(epsgEdit != nullptr);
+        assert(acceptButton != nullptr);
+        epsgEdit->setText("EPSG:3857");
+        acceptButton->click();
+    });
+    selectProjectionButton->click();
+    app.processEvents();
+    assert(targetEpsgEdit->text() == "EPSG:3857");
 
     auto* sourceErrorLabel = sourcePanel->findChild<QLabel*>("sourceErrorLabel");
-    auto* previewLabel = sourcePanel->findChild<QLabel*>("previewLabel");
+    auto* previewLabel = sourcePanel->findChild<QLabel*>("sourcePreviewLabel");
     auto* presetValidationLabel = presetPanel->findChild<QLabel*>("presetValidationLabel");
     auto* logExportStatusLabel = logPanel->findChild<QLabel*>("logExportStatusLabel");
     assert(sourceErrorLabel != nullptr);
@@ -124,11 +293,16 @@ int main(int argc, char** argv) {
     assert(previewLabel->property("surfaceRole").toString() == "preview");
     assert(presetValidationLabel->property("semanticRole").toString() == "validation");
     assert(logExportStatusLabel->property("semanticRole").toString() == "status");
+    outputFormatCombo->setCurrentText("");
+    app.processEvents();
     addTaskButton->click();
     app.processEvents();
 
     auto* queueTable = queuePanel->findChild<QTableWidget*>("taskQueueTable");
     assert(queueTable != nullptr);
+    assert(queueTable->columnCount() == 7);
+    assert(queueTable->horizontalHeaderItem(0)->text() == "#");
+    assert(queueTable->horizontalHeaderItem(6)->text() == "消息");
     assert(queueTable->rowCount() == 0);
 
     auto* logView = logPanel->findChild<QPlainTextEdit*>("logView");
@@ -138,12 +312,32 @@ int main(int argc, char** argv) {
     assert(logs.contains("[config]"));
     assert(logs.contains("ValidationError"));
 
+    clearSourcesButton->click();
+    app.processEvents();
+    assert(sourceTable->rowCount() == 0);
+
     auto* presetCombo = presetPanel->findChild<QComboBox*>("presetCombo");
     assert(presetCombo != nullptr);
     const int cogLikeIndex = presetCombo->findText("COG-like GeoTIFF");
+    const int pngIndex = presetCombo->findText("PNG Image");
+    const int jpegIndex = presetCombo->findText("JPEG Image");
+    const int webpIndex = presetCombo->findText("WebP Image");
+    const int enviIndex = presetCombo->findText("ENVI Raster");
     assert(cogLikeIndex >= 0);
+    assert(pngIndex >= 0);
+    assert(jpegIndex >= 0);
+    assert(webpIndex >= 0);
+    assert(enviIndex >= 0);
     presetCombo->setCurrentIndex(cogLikeIndex);
     app.processEvents();
+    assert(outputFormatCombo->currentText() == "COG-like GeoTIFF");
+
+    outputFormatCombo->setCurrentText("PNG Image");
+    app.processEvents();
+    auto pngPreset = presetPanel->currentPreset();
+    assert(pngPreset.outputFormat == "PNG Image");
+    assert(pngPreset.driverName == "PNG");
+    assert(pngPreset.outputExtension == ".png");
 
     pauseQueueButton->click();
     app.processEvents();
@@ -156,21 +350,21 @@ int main(int argc, char** argv) {
     assert(queueTable->rowCount() > 0);
     auto* statusItem = queueTable->item(0, 4);
     auto* progressItem = queueTable->item(0, 5);
-    auto* errorClassItem = queueTable->item(0, 6);
+    auto* messageItem = queueTable->item(0, 6);
     assert(statusItem != nullptr);
     assert(progressItem != nullptr);
-    assert(errorClassItem != nullptr);
+    assert(messageItem != nullptr);
     assert(statusItem->data(Qt::UserRole).toString().startsWith("status:"));
     assert(!statusItem->toolTip().isEmpty());
     assert((progressItem->textAlignment() & Qt::AlignRight) != 0);
     assert(progressItem->data(Qt::UserRole).toString() == "metric:progress");
-    assert(errorClassItem->data(Qt::UserRole).toString().startsWith("error-class:"));
-    assert(!errorClassItem->toolTip().isEmpty());
+    assert(messageItem->data(Qt::UserRole).toString().startsWith("error-class:"));
+    assert(!messageItem->toolTip().isEmpty());
 
     bool foundCogLikeOutput = false;
     for (int row = 0; row < queueTable->rowCount(); ++row) {
         auto* outputItem = queueTable->item(row, 2);
-        if (outputItem != nullptr && outputItem->text().endsWith(".cog.tif")) {
+        if (outputItem != nullptr && outputItem->text().endsWith(".png")) {
             foundCogLikeOutput = true;
             break;
         }

@@ -1,5 +1,7 @@
 #include "rastertoolbox/ui/panels/QueuePanel.hpp"
 
+#include <filesystem>
+
 #include <QAbstractItemView>
 #include <QHeaderView>
 #include <QHBoxLayout>
@@ -98,11 +100,38 @@ QTableWidgetItem* createProgressItem(const double progress) {
     return item;
 }
 
-QTableWidgetItem* createErrorClassItem(const rastertoolbox::common::ErrorClass errorClass) {
-    const auto errorClassText = QString::fromUtf8(rastertoolbox::common::toString(errorClass).data());
-    auto* item = createItem(errorClassText);
+QString fileNameForPath(const std::string& path) {
+    const auto fileName = std::filesystem::path(path).filename().string();
+    return QString::fromStdString(fileName.empty() ? path : fileName);
+}
+
+QTableWidgetItem* createPathItem(const std::string& path) {
+    auto* item = createItem(fileNameForPath(path));
+    item->setToolTip(QString::fromStdString(path));
+    return item;
+}
+
+QTableWidgetItem* createTaskNumberItem(const int row, const std::string& taskId) {
+    auto* item = createItem(QString::number(row + 1));
+    item->setData(Qt::UserRole, QString::fromStdString(taskId));
+    item->setToolTip(QString::fromStdString(taskId));
+    item->setTextAlignment(Qt::AlignCenter);
+    return item;
+}
+
+QTableWidgetItem* createMessageItem(const rastertoolbox::dispatcher::Task& task) {
+    QString message = QString::fromStdString(task.statusMessage);
+    if (!task.errorCode.empty()) {
+        message += QString(" [") + QString::fromStdString(task.errorCode) + "]";
+    }
+    if (!task.details.empty()) {
+        message += QString(" {") + QString::fromStdString(task.details) + "}";
+    }
+
+    auto* item = createItem(message);
+    const auto errorClassText = QString::fromUtf8(rastertoolbox::common::toString(task.errorClass).data());
     item->setData(Qt::UserRole, QString("error-class:%1").arg(errorClassText).toLower());
-    item->setToolTip(QString("ErrorClass: %1").arg(errorClassText));
+    item->setToolTip(QString("ErrorClass: %1\n%2").arg(errorClassText, message));
     return item;
 }
 
@@ -162,16 +191,15 @@ QueuePanel::QueuePanel(QWidget* parent) : QWidget(parent) {
     table_ = new QTableWidget(this);
     table_->setObjectName("taskQueueTable");
     table_->setProperty("surfaceRole", QStringLiteral("queueTable"));
-    table_->setColumnCount(8);
+    table_->setColumnCount(7);
     table_->setHorizontalHeaderLabels({
-        "TaskId",
-        "Input",
-        "Output",
-        "Preset",
-        "Status",
-        "Progress",
-        "ErrorClass",
-        "Message",
+        "#",
+        "输入文件",
+        "输出文件",
+        "预设",
+        "状态",
+        "进度",
+        "消息",
     });
     table_->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
     table_->verticalHeader()->setVisible(false);
@@ -275,9 +303,9 @@ void QueuePanel::setTasks(const std::vector<rastertoolbox::dispatcher::Task>& ta
 
     int row = 0;
     for (const auto& task : tasks) {
-        table_->setItem(row, 0, createItem(QString::fromStdString(task.id)));
-        table_->setItem(row, 1, createItem(QString::fromStdString(task.inputPath)));
-        table_->setItem(row, 2, createItem(QString::fromStdString(task.outputPath)));
+        table_->setItem(row, 0, createTaskNumberItem(row, task.id));
+        table_->setItem(row, 1, createPathItem(task.inputPath));
+        table_->setItem(row, 2, createPathItem(task.outputPath));
         const QString presetSummary = QString("%1/%2/Ov:%3")
                                           .arg(QString::fromStdString(task.presetSnapshot.outputFormat))
                                           .arg(QString::fromStdString(task.presetSnapshot.compressionMethod))
@@ -285,15 +313,7 @@ void QueuePanel::setTasks(const std::vector<rastertoolbox::dispatcher::Task>& ta
         table_->setItem(row, 3, createItem(presetSummary));
         table_->setItem(row, 4, createStatusItem(task.status));
         table_->setItem(row, 5, createProgressItem(task.progress));
-        table_->setItem(row, 6, createErrorClassItem(task.errorClass));
-        QString message = QString::fromStdString(task.statusMessage);
-        if (!task.errorCode.empty()) {
-            message += QString(" [") + QString::fromStdString(task.errorCode) + "]";
-        }
-        if (!task.details.empty()) {
-            message += QString(" {") + QString::fromStdString(task.details) + "}";
-        }
-        table_->setItem(row, 7, createItem(message));
+        table_->setItem(row, 6, createMessageItem(task));
         ++row;
     }
 }
@@ -306,7 +326,7 @@ std::string QueuePanel::selectedTaskId() const {
 
     const int row = selectedRows.front().row();
     if (const auto* item = table_->item(row, 0); item != nullptr) {
-        return item->text().toStdString();
+        return item->data(Qt::UserRole).toString().toStdString();
     }
 
     return {};

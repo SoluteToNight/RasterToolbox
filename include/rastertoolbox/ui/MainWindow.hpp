@@ -22,6 +22,9 @@ class QueuePanel;
 class LogPanel;
 }
 class QAction;
+class QLabel;
+class QPushButton;
+class QWidget;
 
 namespace rastertoolbox::ui {
 
@@ -38,6 +41,10 @@ private:
     void handlePresetChanged(const rastertoolbox::config::Preset& preset);
     void handleLoadPresetRequested();
     void handleSavePresetRequested(const rastertoolbox::config::Preset& preset);
+    void handleClearSourcesRequested();
+    void handleOutputDirectoryBrowseRequested();
+    void handleResetPresetRequested();
+    void handleHelpRequested();
     void handleAddTaskRequested();
     void handlePauseRequested();
     void handleResumeRequested();
@@ -49,9 +56,13 @@ private:
     void handleExportTaskReportRequested(const std::string& taskId);
     void handleCancelRequested(const std::string& taskId);
     void setupThemeMenu();
+    [[nodiscard]] QWidget* setupHeader();
+    [[nodiscard]] QWidget* setupStatusBar();
     void applyTheme(const std::string& theme);
 
     void refreshQueueView(const std::vector<rastertoolbox::dispatcher::Task>& tasks);
+    void refreshStatusSummary();
+    void refreshStatusSummary(const std::vector<rastertoolbox::dispatcher::Task>& tasks);
     void appendLog(
         rastertoolbox::dispatcher::EventSource source,
         rastertoolbox::dispatcher::LogLevel level,
@@ -92,6 +103,14 @@ private:
     std::uint64_t taskCounter_{0};
     QAction* darkThemeAction_{};
     QAction* lightThemeAction_{};
+    QPushButton* themeToggleButton_{};
+    QPushButton* helpButton_{};
+    QLabel* statusSuccessCountLabel_{};
+    QLabel* statusRunningCountLabel_{};
+    QLabel* statusPendingCountLabel_{};
+    QLabel* statusPresetLabel_{};
+    QLabel* statusOutputDirectoryLabel_{};
+    std::vector<rastertoolbox::dispatcher::Task> latestTasks_;
 };
 
 } // namespace rastertoolbox::ui

@@ -21,6 +21,8 @@
       "TILED": "NO"
     },
     "targetEpsg": "",
+    "targetPixelSizeX": 0,
+    "targetPixelSizeY": 0,
     "resampling": "nearest"
   },
   {
@@ -49,6 +51,8 @@
       "BIGTIFF": "IF_SAFER"
     },
     "targetEpsg": "",
+    "targetPixelSizeX": 0,
+    "targetPixelSizeY": 0,
     "resampling": "nearest"
   },
   {
@@ -83,6 +87,130 @@
       "COPY_SRC_OVERVIEWS": "YES"
     },
     "targetEpsg": "",
+    "targetPixelSizeX": 0,
+    "targetPixelSizeY": 0,
+    "resampling": "nearest"
+  },
+  {
+    "schemaVersion": 3,
+    "id": "png-image",
+    "name": "PNG Image",
+    "outputFormat": "PNG Image",
+    "driverName": "PNG",
+    "outputExtension": ".png",
+    "compressionMethod": "PNG_DEFLATE",
+    "compressionLevel": 6,
+    "buildOverviews": false,
+    "overviewLevels": [],
+    "overviewResampling": "NEAREST",
+    "outputDirectory": "./output",
+    "outputSuffix": "_png",
+    "overwriteExisting": false,
+    "creationOptions": {
+      "ZLEVEL": "6"
+    },
+    "gdalOptions": {
+      "ZLEVEL": "6"
+    },
+    "targetEpsg": "",
+    "targetPixelSizeX": 0,
+    "targetPixelSizeY": 0,
+    "resampling": "nearest"
+  },
+  {
+    "schemaVersion": 3,
+    "id": "jpeg-image",
+    "name": "JPEG Image",
+    "outputFormat": "JPEG Image",
+    "driverName": "JPEG",
+    "outputExtension": ".jpg",
+    "compressionMethod": "JPEG_QUALITY",
+    "compressionLevel": 0,
+    "buildOverviews": false,
+    "overviewLevels": [],
+    "overviewResampling": "NEAREST",
+    "outputDirectory": "./output",
+    "outputSuffix": "_jpg",
+    "overwriteExisting": false,
+    "creationOptions": {
+      "QUALITY": "90"
+    },
+    "gdalOptions": {
+      "QUALITY": "90"
+    },
+    "targetEpsg": "",
+    "targetPixelSizeX": 0,
+    "targetPixelSizeY": 0,
+    "resampling": "nearest"
+  },
+  {
+    "schemaVersion": 3,
+    "id": "webp-image",
+    "name": "WebP Image",
+    "outputFormat": "WebP Image",
+    "driverName": "WEBP",
+    "outputExtension": ".webp",
+    "compressionMethod": "WEBP_QUALITY",
+    "compressionLevel": 0,
+    "buildOverviews": false,
+    "overviewLevels": [],
+    "overviewResampling": "NEAREST",
+    "outputDirectory": "./output",
+    "outputSuffix": "_webp",
+    "overwriteExisting": false,
+    "creationOptions": {
+      "QUALITY": "90"
+    },
+    "gdalOptions": {
+      "QUALITY": "90"
+    },
+    "targetEpsg": "",
+    "targetPixelSizeX": 0,
+    "targetPixelSizeY": 0,
+    "resampling": "nearest"
+  },
+  {
+    "schemaVersion": 3,
+    "id": "envi-raster",
+    "name": "ENVI Raster",
+    "outputFormat": "ENVI Raster",
+    "driverName": "ENVI",
+    "outputExtension": ".dat",
+    "compressionMethod": "NONE",
+    "compressionLevel": 0,
+    "buildOverviews": false,
+    "overviewLevels": [],
+    "overviewResampling": "NEAREST",
+    "outputDirectory": "./output",
+    "outputSuffix": "_envi",
+    "overwriteExisting": false,
+    "creationOptions": {},
+    "gdalOptions": {},
+    "targetEpsg": "",
+    "targetPixelSizeX": 0,
+    "targetPixelSizeY": 0,
+    "resampling": "nearest"
+  },
+  {
+    "schemaVersion": 3,
+    "id": "gpkg-raster",
+    "name": "GeoPackage Raster",
+    "outputFormat": "GeoPackage Raster",
+    "driverName": "GPKG",
+    "outputExtension": ".gpkg",
+    "compressionMethod": "NONE",
+    "compressionLevel": 0,
+    "buildOverviews": false,
+    "overviewLevels": [],
+    "overviewResampling": "NEAREST",
+    "outputDirectory": "./output",
+    "outputSuffix": "_gpkg",
+    "overwriteExisting": false,
+    "creationOptions": {},
+    "gdalOptions": {},
+    "targetEpsg": "",
+    "targetPixelSizeX": 0,
+    "targetPixelSizeY": 0,
     "resampling": "nearest"
   }
 ]

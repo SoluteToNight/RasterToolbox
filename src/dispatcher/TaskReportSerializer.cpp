@@ -75,6 +75,8 @@ nlohmann::json presetToJson(const rastertoolbox::config::Preset& preset) {
         {"creationOptions", preset.creationOptions},
         {"gdalOptions", preset.gdalOptions},
         {"targetEpsg", preset.targetEpsg},
+        {"targetPixelSizeX", preset.targetPixelSizeX},
+        {"targetPixelSizeY", preset.targetPixelSizeY},
         {"resampling", preset.resampling},
     };
 }

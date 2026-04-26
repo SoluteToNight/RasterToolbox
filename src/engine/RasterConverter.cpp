@@ -33,6 +33,20 @@ void appendWarpOption(char*** options, const std::string& key, const nlohmann::j
     *options = CSLAddString(*options, optionValue.c_str());
 }
 
+bool hasTargetPixelSize(const rastertoolbox::config::Preset& preset) {
+    return preset.targetPixelSizeX > 0.0 && preset.targetPixelSizeY > 0.0;
+}
+
+bool driverSupportsCompressionOption(const std::string& driverName) {
+    return driverName == "GTiff" || driverName == "COG";
+}
+
+void appendWarpCreationOption(char*** options, const std::string& key, const std::string& value) {
+    const std::string optionValue = key + "=" + value;
+    *options = CSLAddString(*options, "-co");
+    *options = CSLAddString(*options, optionValue.c_str());
+}
+
 struct ProgressContext {
     const rastertoolbox::dispatcher::WorkerContext* workerContext;
     RasterConverter::EventCallback eventCallback;
@@ -127,19 +141,44 @@ RasterJobResult RasterConverter::convert(
         ? request.preset.creationOptions
         : request.preset.gdalOptions;
 
-    const bool requiresWarp = !request.preset.targetEpsg.empty();
+    const bool requiresWarp = !request.preset.targetEpsg.empty() || hasTargetPixelSize(request.preset);
     if (requiresWarp) {
         char** warpOptions = nullptr;
         warpOptions = CSLAddString(warpOptions, "-of");
         warpOptions = CSLAddString(warpOptions, request.preset.driverName.c_str());
-        warpOptions = CSLAddString(warpOptions, "-t_srs");
-        warpOptions = CSLAddString(warpOptions, request.preset.targetEpsg.c_str());
+        if (!request.preset.targetEpsg.empty()) {
+            warpOptions = CSLAddString(warpOptions, "-t_srs");
+            warpOptions = CSLAddString(warpOptions, request.preset.targetEpsg.c_str());
+        }
         warpOptions = CSLAddString(warpOptions, "-r");
         warpOptions = CSLAddString(warpOptions, request.preset.resampling.c_str());
+        if (hasTargetPixelSize(request.preset)) {
+            const std::string xResolution = std::to_string(request.preset.targetPixelSizeX);
+            const std::string yResolution = std::to_string(request.preset.targetPixelSizeY);
+            warpOptions = CSLAddString(warpOptions, "-tr");
+            warpOptions = CSLAddString(warpOptions, xResolution.c_str());
+            warpOptions = CSLAddString(warpOptions, yResolution.c_str());
+        }
         if (optionPayload.is_object()) {
             for (const auto& [key, value] : optionPayload.items()) {
                 appendWarpOption(&warpOptions, key, value);
             }
+        }
+        if (
+            !request.preset.compressionMethod.empty()
+            && driverSupportsCompressionOption(request.preset.driverName)
+            && (!optionPayload.is_object() || !optionPayload.contains("COMPRESS"))
+        ) {
+            appendWarpCreationOption(&warpOptions, "COMPRESS", request.preset.compressionMethod);
+        }
+        if (!optionPayload.is_object() || !optionPayload.contains("TILED")) {
+            appendWarpCreationOption(&warpOptions, "TILED", "YES");
+        }
+        if (
+            request.preset.compressionLevel > 0
+            && (!optionPayload.is_object() || !optionPayload.contains("ZLEVEL"))
+        ) {
+            appendWarpCreationOption(&warpOptions, "ZLEVEL", std::to_string(request.preset.compressionLevel));
         }
 
         ProgressContext progressContext{
@@ -204,13 +243,21 @@ RasterJobResult RasterConverter::convert(
         }
     }
 
-    if (CSLFetchNameValue(options, "COMPRESS") == nullptr && !request.preset.compressionMethod.empty()) {
+    if (
+        CSLFetchNameValue(options, "COMPRESS") == nullptr
+        && !request.preset.compressionMethod.empty()
+        && driverSupportsCompressionOption(request.preset.driverName)
+    ) {
         options = CSLSetNameValue(options, "COMPRESS", request.preset.compressionMethod.c_str());
     }
-    if (CSLFetchNameValue(options, "TILED") == nullptr) {
+    if (CSLFetchNameValue(options, "TILED") == nullptr && request.preset.driverName == "GTiff") {
         options = CSLSetNameValue(options, "TILED", "YES");
     }
-    if (CSLFetchNameValue(options, "ZLEVEL") == nullptr && request.preset.compressionLevel > 0) {
+    if (
+        CSLFetchNameValue(options, "ZLEVEL") == nullptr
+        && request.preset.compressionLevel > 0
+        && request.preset.driverName == "GTiff"
+    ) {
         const std::string zlevel = std::to_string(request.preset.compressionLevel);
         options = CSLSetNameValue(options, "ZLEVEL", zlevel.c_str());
     }

@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <filesystem>
 #include <system_error>
+#include <utility>
+#include <vector>
 
 #include "rastertoolbox/common/ErrorClass.hpp"
 #include "rastertoolbox/common/Timestamp.hpp"
@@ -10,6 +12,22 @@
 namespace rastertoolbox::engine {
 
 namespace {
+
+std::vector<std::pair<std::filesystem::path, std::filesystem::path>> knownSidecarMoves(
+    const std::filesystem::path& workingOutputPath,
+    const std::filesystem::path& finalOutputPath
+) {
+    return {
+        {
+            std::filesystem::path(workingOutputPath.string() + ".aux.xml"),
+            std::filesystem::path(finalOutputPath.string() + ".aux.xml"),
+        },
+        {
+            std::filesystem::path(workingOutputPath.string() + ".hdr"),
+            std::filesystem::path(finalOutputPath.string() + ".hdr"),
+        },
+    };
+}
 
 void emitScaledEvent(
     const RasterExecutionService::EventCallback& eventCallback,
@@ -34,6 +52,14 @@ bool cleanupWorkingOutput(
     RasterJobResult& result
 ) {
     std::error_code error;
+    for (const auto& [workingSidecar, finalSidecar] : knownSidecarMoves(workingOutputPath, workingOutputPath)) {
+        (void)finalSidecar;
+        if (std::filesystem::exists(workingSidecar, error) && !error) {
+            std::filesystem::remove(workingSidecar, error);
+        }
+        error.clear();
+    }
+
     if (!std::filesystem::exists(workingOutputPath, error) || error) {
         return !error;
     }
@@ -53,6 +79,55 @@ bool cleanupWorkingOutput(
         result.details += " | cleanup-error=" + error.message();
     }
     return false;
+}
+
+bool promoteSidecars(
+    const std::filesystem::path& workingOutputPath,
+    const std::filesystem::path& finalOutputPath,
+    const bool overwriteExisting,
+    RasterJobResult& result
+) {
+    std::error_code error;
+    for (const auto& [workingSidecar, finalSidecar] : knownSidecarMoves(workingOutputPath, finalOutputPath)) {
+        if (!std::filesystem::exists(workingSidecar, error)) {
+            if (error) {
+                error.clear();
+            }
+            continue;
+        }
+
+        if (std::filesystem::exists(finalSidecar, error)) {
+            if (!overwriteExisting) {
+                result.errorClass = rastertoolbox::common::ErrorClass::TaskError;
+                result.errorCode = "FINAL_SIDECAR_EXISTS";
+                result.message = "最终输出附属文件已存在";
+                result.details = finalSidecar.string();
+                result.partialOutputPath = workingSidecar.string();
+                return false;
+            }
+            std::filesystem::remove(finalSidecar, error);
+            if (error) {
+                result.errorClass = rastertoolbox::common::ErrorClass::TaskError;
+                result.errorCode = "REMOVE_FINAL_SIDECAR_FAILED";
+                result.message = "无法覆盖已有输出附属文件";
+                result.details = error.message();
+                result.partialOutputPath = workingSidecar.string();
+                return false;
+            }
+        }
+
+        std::filesystem::rename(workingSidecar, finalSidecar, error);
+        if (error) {
+            result.errorClass = rastertoolbox::common::ErrorClass::TaskError;
+            result.errorCode = "PROMOTE_SIDECAR_FAILED";
+            result.message = "无法提交输出附属文件";
+            result.details = error.message();
+            result.partialOutputPath = workingSidecar.string();
+            return false;
+        }
+    }
+
+    return true;
 }
 
 bool promoteWorkingOutput(
@@ -99,7 +174,7 @@ bool promoteWorkingOutput(
     if (error) {
         result.bytesWritten = 0;
     }
-    return true;
+    return promoteSidecars(workingOutputPath, finalOutputPath, overwriteExisting, result);
 }
 
 } // namespace

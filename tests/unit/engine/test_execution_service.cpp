@@ -91,6 +91,80 @@ int main() {
     assert(std::string(authorityCode) == "4326");
     GDALClose(reprojectedDataset);
 
+    const auto resizedOutputPath = tempDir / "resized-output.tif";
+    rastertoolbox::engine::RasterJobRequest resizedRequest = request;
+    resizedRequest.taskId = "task-resized";
+    resizedRequest.outputPath = resizedOutputPath.string();
+    resizedRequest.preset.targetPixelSizeX = 15.0;
+    resizedRequest.preset.targetPixelSizeY = 15.0;
+    const auto resized = service.execute(
+        resizedRequest,
+        workerContext,
+        [](const rastertoolbox::dispatcher::ProgressEvent&) {}
+    );
+    assert(resized.success);
+    GDALDataset* resizedDataset = static_cast<GDALDataset*>(
+        GDALOpenEx(resizedOutputPath.string().c_str(), GDAL_OF_RASTER, nullptr, nullptr, nullptr)
+    );
+    assert(resizedDataset != nullptr);
+    double resizedGeotransform[6] = {};
+    assert(resizedDataset->GetGeoTransform(resizedGeotransform) == CE_None);
+    assert(resizedGeotransform[1] == 15.0);
+    assert(resizedGeotransform[5] == -15.0);
+    GDALClose(resizedDataset);
+
+    const auto pngOutputPath = tempDir / "image-output.png";
+    const auto pngAuxPath = std::filesystem::path(pngOutputPath.string() + ".aux.xml");
+    rastertoolbox::engine::RasterJobRequest pngRequest = request;
+    pngRequest.taskId = "task-png";
+    pngRequest.outputPath = pngOutputPath.string();
+    pngRequest.preset.outputFormat = "PNG Image";
+    pngRequest.preset.driverName = "PNG";
+    pngRequest.preset.outputExtension = ".png";
+    pngRequest.preset.compressionMethod = "NONE";
+    pngRequest.preset.creationOptions = nlohmann::json::object({{"ZLEVEL", "6"}});
+    pngRequest.preset.gdalOptions = pngRequest.preset.creationOptions;
+    pngRequest.preset.buildOverviews = false;
+    const auto png = service.execute(
+        pngRequest,
+        workerContext,
+        [](const rastertoolbox::dispatcher::ProgressEvent&) {}
+    );
+    assert(png.success);
+    GDALDataset* pngDataset = static_cast<GDALDataset*>(
+        GDALOpenEx(pngOutputPath.string().c_str(), GDAL_OF_RASTER, nullptr, nullptr, nullptr)
+    );
+    assert(pngDataset != nullptr);
+    assert(std::string(pngDataset->GetDriver()->GetDescription()) == "PNG");
+    GDALClose(pngDataset);
+    assert(std::filesystem::exists(pngAuxPath));
+    assert(!std::filesystem::exists(rastertoolbox::engine::makeTemporaryOutputPath(
+        pngOutputPath.string(),
+        pngRequest.taskId
+    ) + ".aux.xml"));
+
+    const auto enviOutputPath = tempDir / "envi-output.dat";
+    const auto enviHeaderPath = std::filesystem::path(enviOutputPath.string() + ".hdr");
+    const auto enviAuxPath = std::filesystem::path(enviOutputPath.string() + ".aux.xml");
+    rastertoolbox::engine::RasterJobRequest enviRequest = request;
+    enviRequest.taskId = "task-envi";
+    enviRequest.outputPath = enviOutputPath.string();
+    enviRequest.preset.outputFormat = "ENVI Raster";
+    enviRequest.preset.driverName = "ENVI";
+    enviRequest.preset.outputExtension = ".dat";
+    enviRequest.preset.compressionMethod = "NONE";
+    enviRequest.preset.creationOptions = nlohmann::json::object();
+    enviRequest.preset.gdalOptions = nlohmann::json::object();
+    enviRequest.preset.buildOverviews = false;
+    const auto envi = service.execute(
+        enviRequest,
+        workerContext,
+        [](const rastertoolbox::dispatcher::ProgressEvent&) {}
+    );
+    assert(envi.success);
+    assert(std::filesystem::exists(enviOutputPath));
+    assert(std::filesystem::exists(enviHeaderPath));
+
     rastertoolbox::engine::RasterJobRequest canceledRequest = request;
     canceledRequest.taskId = "task-canceled";
     canceledRequest.outputPath = canceledOutputPath.string();
@@ -125,6 +199,12 @@ int main() {
 
     std::filesystem::remove(outputPath);
     std::filesystem::remove(reprojectedOutputPath);
+    std::filesystem::remove(resizedOutputPath);
+    std::filesystem::remove(pngOutputPath);
+    std::filesystem::remove(pngAuxPath);
+    std::filesystem::remove(enviOutputPath);
+    std::filesystem::remove(enviHeaderPath);
+    std::filesystem::remove(enviAuxPath);
     std::filesystem::remove(canceledOutputPath);
     std::filesystem::remove(inputPath);
     std::filesystem::remove(tempDir);

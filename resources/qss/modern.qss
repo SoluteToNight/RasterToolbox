@@ -60,6 +60,43 @@ QSplitter#mainSplitter {
     background: #07111f;
 }
 
+QWidget#mainRoot {
+    background: #07111f;
+}
+
+QFrame#appHeaderBar,
+QFrame#statusSummaryBar {
+    background: #0d1829;
+    border: 1px solid #1f314a;
+    border-radius: 8px;
+}
+
+QLabel#appLogoLabel {
+    background: #1f67d2;
+    border-radius: 4px;
+    color: #ffffff;
+    font-weight: 800;
+    min-height: 32px;
+    min-width: 32px;
+}
+
+QLabel[semanticRole="title"] {
+    color: #f8fbff;
+    font-size: 18px;
+    font-weight: 750;
+}
+
+QLabel[semanticRole="sectionTitle"] {
+    color: #e6edf7;
+    font-size: 13px;
+    font-weight: 700;
+}
+
+QFrame#logHeaderBar {
+    background: transparent;
+    border: none;
+}
+
 QSplitter#mainSplitter::handle {
     background: #0e1a2c;
     border-left: 1px solid #18283e;
@@ -79,7 +116,7 @@ QWidget#queuePanel,
 QWidget#logPanel {
     background: #0d1829;
     border: 1px solid #1f314a;
-    border-radius: 16px;
+    border-radius: 8px;
 }
 
 QWidget#sourcePanel:hover,
@@ -93,7 +130,7 @@ QLabel[semanticRole="summary"],
 QLabel[semanticRole="status"] {
     background: #111f33;
     border: 1px solid #243955;
-    border-radius: 10px;
+    border-radius: 8px;
     color: #aebed3;
     padding: 8px 10px;
 }
@@ -102,7 +139,7 @@ QLabel[semanticRole="danger"],
 QLabel[semanticRole="validation"] {
     background: rgba(244, 63, 94, 0.12);
     border: 1px solid rgba(251, 113, 133, 0.32);
-    border-radius: 10px;
+    border-radius: 8px;
     color: #fda4af;
     font-weight: 650;
     padding: 7px 10px;
@@ -111,7 +148,7 @@ QLabel[semanticRole="validation"] {
 QLabel[surfaceRole="preview"] {
     background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #0a1424, stop:1 #111f34);
     border: 1px dashed #385170;
-    border-radius: 14px;
+    border-radius: 8px;
     color: #8ea2bb;
     padding: 12px;
 }
@@ -119,7 +156,7 @@ QLabel[surfaceRole="preview"] {
 QPushButton {
     background: #16243a;
     border: 1px solid #2b405d;
-    border-radius: 10px;
+    border-radius: 8px;
     color: #e6edf7;
     min-height: 26px;
     padding: 7px 12px;
@@ -192,7 +229,7 @@ QListWidget,
 QTableWidget {
     background: #081426;
     border: 1px solid #263a56;
-    border-radius: 11px;
+    border-radius: 8px;
     color: #e6edf7;
     padding: 6px 8px;
 }
@@ -228,6 +265,17 @@ QTextEdit[surfaceRole="metadata"] {
 
 QListWidget[surfaceRole="list"] {
     background: #0a1728;
+}
+
+QTableWidget[surfaceRole="sourceTable"],
+QWidget[surfaceRole="detailPanel"] {
+    background: #081426;
+    border: 1px solid #263a56;
+    border-radius: 8px;
+}
+
+QWidget#queueLogColumn {
+    background: transparent;
 }
 
 QComboBox::drop-down {
