@@ -108,6 +108,10 @@ int main(int argc, char** argv) {
     assert(reportJson.at("progressSummary").at("eventCount") == 2);
     assert(reportJson.at("events").is_array());
 
+    logTextStream.close();
+    logJsonStream.close();
+    reportStream.close();
+
     std::filesystem::remove(logTextPath);
     std::filesystem::remove(logJsonPath);
     std::filesystem::remove(reportPath);

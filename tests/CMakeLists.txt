@@ -1,5 +1,6 @@
 add_executable(test_unit_model unit/test_unit_model.cpp)
 target_include_directories(test_unit_model PRIVATE ${PROJECT_SOURCE_DIR}/include)
+target_link_libraries(test_unit_model PRIVATE nlohmann_json::nlohmann_json)
 add_test(NAME unit_model COMMAND test_unit_model)
 set_tests_properties(unit_model PROPERTIES LABELS "unit-model")
 
@@ -29,6 +30,7 @@ target_include_directories(test_task_queue PRIVATE ${PROJECT_SOURCE_DIR}/include
 target_sources(test_task_queue PRIVATE
     ${PROJECT_SOURCE_DIR}/src/dispatcher/TaskQueueManager.cpp
 )
+target_link_libraries(test_task_queue PRIVATE nlohmann_json::nlohmann_json)
 add_test(NAME task_queue COMMAND test_task_queue)
 set_tests_properties(task_queue PROPERTIES LABELS "queue")
 
@@ -54,7 +56,10 @@ target_sources(test_engine_runner PRIVATE
     ${PROJECT_SOURCE_DIR}/src/engine/OverviewBuilder.cpp
     ${PROJECT_SOURCE_DIR}/src/dispatcher/WorkerContext.cpp
 )
-target_link_libraries(test_engine_runner PRIVATE ${RASTERTOOLBOX_GDAL_TARGET})
+target_link_libraries(test_engine_runner PRIVATE
+    ${RASTERTOOLBOX_GDAL_TARGET}
+    nlohmann_json::nlohmann_json
+)
 add_test(NAME engine_runner COMMAND test_engine_runner)
 set_tests_properties(engine_runner PROPERTIES LABELS "engine-runner")
 
@@ -72,6 +77,7 @@ target_link_libraries(test_dispatcher_integration PRIVATE
     Qt6::Core
     Qt6::Concurrent
     ${RASTERTOOLBOX_GDAL_TARGET}
+    nlohmann_json::nlohmann_json
 )
 add_test(NAME dispatcher_integration COMMAND test_dispatcher_integration)
 set_tests_properties(dispatcher_integration PROPERTIES LABELS "integration;queue;log")
