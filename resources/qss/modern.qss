@@ -64,8 +64,50 @@ QWidget#mainRoot {
     background: #07111f;
 }
 
+QTabWidget#mainTabWidget {
+    background: #07111f;
+}
+
+QTabWidget#mainTabWidget::pane {
+    background: #07111f;
+    border: 1px solid #1f314a;
+    border-radius: 8px;
+    top: -1px;
+}
+
+QTabWidget#mainTabWidget QTabBar::tab {
+    background: #0d1829;
+    border: 1px solid #1f314a;
+    border-bottom-color: #1f314a;
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+    color: #aebed3;
+    font-weight: 650;
+    min-width: 92px;
+    padding: 9px 18px;
+}
+
+QTabWidget#mainTabWidget QTabBar::tab:selected {
+    background: #14243a;
+    border-color: #3b82f6;
+    color: #f8fbff;
+}
+
+QTabWidget#mainTabWidget QTabBar::tab:hover:!selected {
+    background: #111f33;
+    border-color: #2d4668;
+    color: #e6edf7;
+}
+
+QWidget#homeTabPage,
+QWidget#queueTabPage,
+QWidget#logTabPage {
+    background: #07111f;
+}
+
 QFrame#appHeaderBar,
-QFrame#statusSummaryBar {
+QFrame#statusSummaryBar,
+QFrame#homeActionsBar {
     background: #0d1829;
     border: 1px solid #1f314a;
     border-radius: 8px;

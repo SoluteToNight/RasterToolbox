@@ -19,6 +19,7 @@
 #include <QMessageBox>
 #include <QPushButton>
 #include <QSplitter>
+#include <QTabWidget>
 #include <QUrl>
 #include <QVBoxLayout>
 #include <QWidget>
@@ -61,29 +62,73 @@ MainWindow::MainWindow()
     rootLayout->setSpacing(12);
     rootLayout->addWidget(setupHeader());
 
-    auto* splitter = new QSplitter(root);
+    mainTabWidget_ = new QTabWidget(root);
+    mainTabWidget_->setObjectName("mainTabWidget");
+
+    auto* homeTabPage = new QWidget(mainTabWidget_);
+    homeTabPage->setObjectName("homeTabPage");
+    auto* homeLayout = new QVBoxLayout(homeTabPage);
+    homeLayout->setContentsMargins(0, 0, 0, 0);
+    homeLayout->setSpacing(12);
+
+    auto* splitter = new QSplitter(homeTabPage);
     splitter->setObjectName("mainSplitter");
     splitter->setHandleWidth(10);
     splitter->setChildrenCollapsible(false);
 
     sourcePanel_ = new panels::SourcePanel(splitter);
     presetPanel_ = new panels::PresetPanel(splitter);
-    auto* rightColumn = new QWidget(splitter);
-    rightColumn->setObjectName("queueLogColumn");
-    auto* rightLayout = new QVBoxLayout(rightColumn);
-    rightLayout->setContentsMargins(0, 0, 0, 0);
-    rightLayout->setSpacing(12);
-    queuePanel_ = new panels::QueuePanel(rightColumn);
-    logPanel_ = new panels::LogPanel(rightColumn);
-    rightLayout->addWidget(queuePanel_, 3);
-    rightLayout->addWidget(logPanel_, 2);
-
     splitter->addWidget(sourcePanel_);
     splitter->addWidget(presetPanel_);
-    splitter->addWidget(rightColumn);
+    splitter->setStretchFactor(0, 5);
+    splitter->setStretchFactor(1, 6);
+    splitter->setSizes({520, 620});
+    homeLayout->addWidget(splitter, 1);
 
-    splitter->setSizes({300, 360, 760});
-    rootLayout->addWidget(splitter, 1);
+    auto* homeActionsBar = new QFrame(homeTabPage);
+    homeActionsBar->setObjectName("homeActionsBar");
+    homeActionsBar->setProperty("surfaceRole", QStringLiteral("homeActions"));
+    auto* homeActionsLayout = new QHBoxLayout(homeActionsBar);
+    homeActionsLayout->setContentsMargins(12, 8, 12, 8);
+    homeActionsLayout->setSpacing(10);
+    auto* homeActionsLabel = new QLabel("任务创建", homeActionsBar);
+    homeActionsLabel->setObjectName("homeActionsLabel");
+    homeActionsLabel->setProperty("semanticRole", QStringLiteral("sectionTitle"));
+    homeActionsLayout->addWidget(homeActionsLabel);
+    homeActionsLayout->addStretch(1);
+    viewQueueButton_ = new QPushButton("查看队列", homeActionsBar);
+    viewQueueButton_->setObjectName("homeViewQueueButton");
+    viewQueueButton_->setProperty("buttonRole", QStringLiteral("secondary"));
+    homeActionsLayout->addWidget(viewQueueButton_);
+    viewLogButton_ = new QPushButton("查看日志", homeActionsBar);
+    viewLogButton_->setObjectName("homeViewLogButton");
+    viewLogButton_->setProperty("buttonRole", QStringLiteral("secondary"));
+    homeActionsLayout->addWidget(viewLogButton_);
+    homeSubmitButton_ = new QPushButton("提交任务", homeActionsBar);
+    homeSubmitButton_->setObjectName("homeSubmitButton");
+    homeSubmitButton_->setProperty("buttonRole", QStringLiteral("primary"));
+    homeActionsLayout->addWidget(homeSubmitButton_);
+    homeLayout->addWidget(homeActionsBar);
+
+    auto* queueTabPage = new QWidget(mainTabWidget_);
+    queueTabPage->setObjectName("queueTabPage");
+    auto* queueLayout = new QVBoxLayout(queueTabPage);
+    queueLayout->setContentsMargins(0, 0, 0, 0);
+    queuePanel_ = new panels::QueuePanel(queueTabPage);
+    queueLayout->addWidget(queuePanel_);
+
+    auto* logTabPage = new QWidget(mainTabWidget_);
+    logTabPage->setObjectName("logTabPage");
+    auto* logLayout = new QVBoxLayout(logTabPage);
+    logLayout->setContentsMargins(0, 0, 0, 0);
+    logPanel_ = new panels::LogPanel(logTabPage);
+    logLayout->addWidget(logPanel_);
+
+    mainTabWidget_->addTab(homeTabPage, "主页");
+    mainTabWidget_->addTab(queueTabPage, "队列");
+    mainTabWidget_->addTab(logTabPage, "日志");
+
+    rootLayout->addWidget(mainTabWidget_, 1);
     rootLayout->addWidget(setupStatusBar());
     setCentralWidget(root);
 
@@ -101,7 +146,6 @@ MainWindow::MainWindow()
     presetPanel_->setOnBrowseOutputDirectoryRequested([this]() { handleOutputDirectoryBrowseRequested(); });
     presetPanel_->setOnResetRequested([this]() { handleResetPresetRequested(); });
 
-    queuePanel_->setOnAddTaskRequested([this]() { handleAddTaskRequested(); });
     queuePanel_->setOnPauseRequested([this]() { handlePauseRequested(); });
     queuePanel_->setOnResumeRequested([this]() { handleResumeRequested(); });
     queuePanel_->setOnRemoveRequested([this](const std::string& taskId) { handleRemoveRequested(taskId); });
@@ -115,6 +159,14 @@ MainWindow::MainWindow()
         handleExportTaskReportRequested(taskId);
     });
     queuePanel_->setOnCancelRequested([this](const std::string& taskId) { handleCancelRequested(taskId); });
+
+    connect(homeSubmitButton_, &QPushButton::clicked, this, [this]() { handleAddTaskRequested(); });
+    connect(viewQueueButton_, &QPushButton::clicked, this, [this]() {
+        mainTabWidget_->setCurrentIndex(1);
+    });
+    connect(viewLogButton_, &QPushButton::clicked, this, [this]() {
+        mainTabWidget_->setCurrentIndex(2);
+    });
 
     taskDispatcher_.setMaxConcurrentTasks(appSettings_.maxConcurrentTasks);
     taskDispatcher_.setEventSink([this](const rastertoolbox::dispatcher::ProgressEvent& event) {
@@ -565,6 +617,7 @@ void MainWindow::handleHelpRequested() {
 void MainWindow::handleAddTaskRequested() {
     const auto selectedPaths = selectedSourcePaths();
     if (selectedPaths.empty()) {
+        sourcePanel_->showError("请先在 Source 面板选择源数据");
         appendLog(
             rastertoolbox::dispatcher::EventSource::Ui,
             rastertoolbox::dispatcher::LogLevel::Warning,

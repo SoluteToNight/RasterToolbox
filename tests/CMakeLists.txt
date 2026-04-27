@@ -108,6 +108,7 @@ target_link_libraries(test_mainwindow_preset_and_log PRIVATE
     Qt6::Gui
     Qt6::Widgets
     Qt6::Concurrent
+    Qt6::Test
     ${RASTERTOOLBOX_GDAL_TARGET}
     nlohmann_json::nlohmann_json
     spdlog::spdlog

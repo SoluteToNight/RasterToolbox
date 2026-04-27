@@ -145,9 +145,6 @@ QueuePanel::QueuePanel(QWidget* parent) : QWidget(parent) {
 
     auto* buttonLayout = new QHBoxLayout();
     buttonLayout->setSpacing(8);
-    addTaskButton_ = new QPushButton("加入队列", this);
-    addTaskButton_->setObjectName("addTaskButton");
-    addTaskButton_->setProperty("buttonRole", QStringLiteral("primary"));
     pauseButton_ = new QPushButton("暂停派发", this);
     pauseButton_->setObjectName("pauseQueueButton");
     pauseButton_->setProperty("buttonRole", QStringLiteral("secondary"));
@@ -176,7 +173,6 @@ QueuePanel::QueuePanel(QWidget* parent) : QWidget(parent) {
     cancelButton_->setObjectName("cancelTaskButton");
     cancelButton_->setProperty("buttonRole", QStringLiteral("danger"));
 
-    buttonLayout->addWidget(addTaskButton_);
     buttonLayout->addWidget(pauseButton_);
     buttonLayout->addWidget(resumeButton_);
     buttonLayout->addWidget(duplicateButton_);
@@ -213,12 +209,6 @@ QueuePanel::QueuePanel(QWidget* parent) : QWidget(parent) {
 }
 
 void QueuePanel::wireEvents() {
-    connect(addTaskButton_, &QPushButton::clicked, this, [this]() {
-        if (onAddTaskRequested_) {
-            onAddTaskRequested_();
-        }
-    });
-
     connect(pauseButton_, &QPushButton::clicked, this, [this]() {
         if (onPauseRequested_) {
             onPauseRequested_();
@@ -330,10 +320,6 @@ std::string QueuePanel::selectedTaskId() const {
     }
 
     return {};
-}
-
-void QueuePanel::setOnAddTaskRequested(std::function<void()> callback) {
-    onAddTaskRequested_ = std::move(callback);
 }
 
 void QueuePanel::setOnPauseRequested(std::function<void()> callback) {

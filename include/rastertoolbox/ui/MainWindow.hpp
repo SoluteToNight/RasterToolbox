@@ -24,6 +24,7 @@ class LogPanel;
 class QAction;
 class QLabel;
 class QPushButton;
+class QTabWidget;
 class QWidget;
 
 namespace rastertoolbox::ui {
@@ -105,6 +106,10 @@ private:
     QAction* lightThemeAction_{};
     QPushButton* themeToggleButton_{};
     QPushButton* helpButton_{};
+    QTabWidget* mainTabWidget_{};
+    QPushButton* homeSubmitButton_{};
+    QPushButton* viewQueueButton_{};
+    QPushButton* viewLogButton_{};
     QLabel* statusSuccessCountLabel_{};
     QLabel* statusRunningCountLabel_{};
     QLabel* statusPendingCountLabel_{};

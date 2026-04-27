@@ -1,4 +1,5 @@
 #include <cassert>
+#include <filesystem>
 #include <QAction>
 #include <QApplication>
 #include <QCheckBox>
@@ -8,8 +9,12 @@
 #include <QLineEdit>
 #include <QPlainTextEdit>
 #include <QPushButton>
+#include <QSplitter>
+#include <QSplitterHandle>
 #include <QSpinBox>
 #include <QTableWidget>
+#include <QTabWidget>
+#include <QTest>
 #include <QTimer>
 
 #include <gdal_priv.h>
@@ -46,6 +51,7 @@ int main(int argc, char** argv) {
     GDALClose(dataset);
 
     rastertoolbox::ui::MainWindow window;
+    window.show();
     app.processEvents();
 
     auto* sourcePanel = findPanel<rastertoolbox::ui::panels::SourcePanel>(window);
@@ -75,6 +81,40 @@ int main(int argc, char** argv) {
     assert(statusPendingCountLabel != nullptr);
     assert(statusPresetLabel != nullptr);
     assert(statusOutputDirectoryLabel != nullptr);
+
+    auto* mainTabWidget = window.findChild<QTabWidget*>("mainTabWidget");
+    auto* homeTabPage = window.findChild<QWidget*>("homeTabPage");
+    auto* queueTabPage = window.findChild<QWidget*>("queueTabPage");
+    auto* logTabPage = window.findChild<QWidget*>("logTabPage");
+    auto* mainSplitter = window.findChild<QSplitter*>("mainSplitter");
+    assert(mainTabWidget != nullptr);
+    assert(homeTabPage != nullptr);
+    assert(queueTabPage != nullptr);
+    assert(logTabPage != nullptr);
+    assert(mainSplitter != nullptr);
+    assert(mainTabWidget->count() == 3);
+    assert(mainTabWidget->tabText(0) == "主页");
+    assert(mainTabWidget->tabText(1) == "队列");
+    assert(mainTabWidget->tabText(2) == "日志");
+    assert(sourcePanel->parentWidget() == mainSplitter);
+    assert(presetPanel->parentWidget() == mainSplitter);
+    assert(queuePanel->parentWidget() == queueTabPage);
+    assert(logPanel->parentWidget() == logTabPage);
+    assert(findPanel<rastertoolbox::ui::panels::QueuePanel>(*homeTabPage) == nullptr);
+    assert(findPanel<rastertoolbox::ui::panels::LogPanel>(*homeTabPage) == nullptr);
+    const auto initialSplitterSizes = mainSplitter->sizes();
+    assert(initialSplitterSizes.size() == 2);
+    auto* splitterHandle = mainSplitter->handle(1);
+    assert(splitterHandle != nullptr);
+    const QPoint dragStart = splitterHandle->rect().center();
+    const QPoint dragEnd = dragStart + QPoint(80, 0);
+    QTest::mousePress(splitterHandle, Qt::LeftButton, Qt::NoModifier, dragStart);
+    QTest::mouseMove(splitterHandle, dragEnd, 20);
+    QTest::mouseRelease(splitterHandle, Qt::LeftButton, Qt::NoModifier, dragEnd);
+    app.processEvents();
+    const auto resizedSplitterSizes = mainSplitter->sizes();
+    assert(resizedSplitterSizes.size() == 2);
+    assert(resizedSplitterSizes != initialSplitterSizes);
 
     rastertoolbox::ui::panels::SourcePanel isolatedSourcePanel;
     isolatedSourcePanel.addSourcePath(QString::fromStdString(tempDatasetPath.string()));
@@ -110,6 +150,14 @@ int main(int argc, char** argv) {
     auto* batchSummaryLabel = sourcePanel->findChild<QLabel*>("batchSummaryLabel");
     assert(batchSummaryLabel != nullptr);
     assert(batchSummaryLabel->text().contains("数量: 1"));
+    mainTabWidget->setCurrentIndex(1);
+    app.processEvents();
+    mainTabWidget->setCurrentIndex(2);
+    app.processEvents();
+    mainTabWidget->setCurrentIndex(0);
+    app.processEvents();
+    assert(sourceTable->rowCount() == 1);
+    assert(batchSummaryLabel->text().contains("数量: 1"));
 
     sourcePanel->addSourcePath("/tmp/rastertoolbox-missing-ui-source.tif");
     app.processEvents();
@@ -130,12 +178,16 @@ int main(int argc, char** argv) {
     assert(lightThemeAction->isChecked());
     assert(!darkThemeAction->isChecked());
     assert(window.property("theme").toString() == "light");
+    assert(qApp->styleSheet().contains("QTabWidget#mainTabWidget"));
+    assert(qApp->styleSheet().contains("QTabBar::tab"));
 
     darkThemeAction->trigger();
     app.processEvents();
     assert(darkThemeAction->isChecked());
     assert(!lightThemeAction->isChecked());
     assert(window.property("theme").toString() == "dark");
+    assert(qApp->styleSheet().contains("QTabWidget#mainTabWidget"));
+    assert(qApp->styleSheet().contains("QTabBar::tab"));
 
     themeToggleButton->click();
     app.processEvents();
@@ -150,7 +202,10 @@ int main(int argc, char** argv) {
     app.processEvents();
     assert(sourceTable->item(0, 1)->text().contains("GTiff"));
 
-    auto* addTaskButton = queuePanel->findChild<QPushButton*>("addTaskButton");
+    auto* legacyAddTaskButton = queuePanel->findChild<QPushButton*>("addTaskButton");
+    auto* homeSubmitButton = window.findChild<QPushButton*>("homeSubmitButton");
+    auto* homeViewQueueButton = window.findChild<QPushButton*>("homeViewQueueButton");
+    auto* homeViewLogButton = window.findChild<QPushButton*>("homeViewLogButton");
     auto* pauseQueueButton = queuePanel->findChild<QPushButton*>("pauseQueueButton");
     auto* duplicateTaskButton = queuePanel->findChild<QPushButton*>("duplicateTaskButton");
     auto* removeTaskButton = queuePanel->findChild<QPushButton*>("removeTaskButton");
@@ -173,7 +228,10 @@ int main(int argc, char** argv) {
     auto* exportLogJsonButton = logPanel->findChild<QPushButton*>("exportLogJsonButton");
     auto* logHeaderBar = logPanel->findChild<QWidget*>("logHeaderBar");
     auto* logTitleLabel = logPanel->findChild<QLabel*>("logTitleLabel");
-    assert(addTaskButton != nullptr);
+    assert(legacyAddTaskButton == nullptr);
+    assert(homeSubmitButton != nullptr);
+    assert(homeViewQueueButton != nullptr);
+    assert(homeViewLogButton != nullptr);
     assert(pauseQueueButton != nullptr);
     assert(duplicateTaskButton != nullptr);
     assert(removeTaskButton != nullptr);
@@ -191,15 +249,33 @@ int main(int argc, char** argv) {
     assert(compressionWebpLosslessCheck != nullptr);
     assert(targetPixelSizeXSpin != nullptr);
     assert(targetPixelSizeYSpin != nullptr);
+    assert(targetPixelSizeXSpin->specialValueText().contains("空间分辨率"));
+    assert(targetPixelSizeYSpin->specialValueText().contains("空间分辨率"));
+    assert(targetPixelSizeXSpin->suffix().contains("坐标单位"));
+    assert(targetPixelSizeYSpin->suffix().contains("坐标单位"));
+    assert(targetPixelSizeXSpin->suffix().trimmed().compare("x", Qt::CaseInsensitive) != 0);
+    assert(targetPixelSizeYSpin->suffix().trimmed().compare("y", Qt::CaseInsensitive) != 0);
+    assert(targetPixelSizeXSpin->toolTip().contains("目标像元大小"));
+    assert(targetPixelSizeYSpin->toolTip().contains("空间分辨率"));
     assert(resetPresetButton != nullptr);
     assert(exportLogTextButton != nullptr);
     assert(exportLogJsonButton != nullptr);
     assert(logHeaderBar != nullptr);
     assert(logTitleLabel != nullptr);
-    assert(addTaskButton->property("buttonRole").toString() == "primary");
+    assert(homeSubmitButton->property("buttonRole").toString() == "primary");
+    assert(homeViewQueueButton->property("buttonRole").toString() == "secondary");
+    assert(homeViewLogButton->property("buttonRole").toString() == "secondary");
     assert(pauseQueueButton->property("buttonRole").toString() == "secondary");
     assert(cancelButton->property("buttonRole").toString() == "danger");
     assert(exportLogTextButton->property("buttonRole").toString() == "secondary");
+    homeViewQueueButton->click();
+    app.processEvents();
+    assert(mainTabWidget->currentWidget() == queueTabPage);
+    homeViewLogButton->click();
+    app.processEvents();
+    assert(mainTabWidget->currentWidget() == logTabPage);
+    mainTabWidget->setCurrentIndex(0);
+    app.processEvents();
     assert(compressionMethodCombo->findText("ZSTD") >= 0);
     assert(compressionMethodCombo->findText("LERC_ZSTD") >= 0);
     assert(compressionMethodCombo->findText("LZMA") >= 0);
@@ -295,7 +371,7 @@ int main(int argc, char** argv) {
     assert(logExportStatusLabel->property("semanticRole").toString() == "status");
     outputFormatCombo->setCurrentText("");
     app.processEvents();
-    addTaskButton->click();
+    homeSubmitButton->click();
     app.processEvents();
 
     auto* queueTable = queuePanel->findChild<QTableWidget*>("taskQueueTable");
@@ -315,6 +391,10 @@ int main(int argc, char** argv) {
     clearSourcesButton->click();
     app.processEvents();
     assert(sourceTable->rowCount() == 0);
+    homeSubmitButton->click();
+    app.processEvents();
+    assert(sourceErrorLabel->text().contains("请先在 Source 面板选择源数据"));
+    assert(logView->toPlainText().contains("请先在 Source 面板选择源数据"));
 
     auto* presetCombo = presetPanel->findChild<QComboBox*>("presetCombo");
     assert(presetCombo != nullptr);
@@ -344,10 +424,19 @@ int main(int argc, char** argv) {
 
     sourcePanel->addSourcePath("/tmp/rastertoolbox-profile-source.tif");
     app.processEvents();
-    addTaskButton->click();
+    homeSubmitButton->click();
     app.processEvents();
 
     assert(queueTable->rowCount() > 0);
+    const int rowCountAfterSubmit = queueTable->rowCount();
+    const QString logsAfterSubmit = logView->toPlainText();
+    assert(logsAfterSubmit.contains("任务已入队"));
+    mainTabWidget->setCurrentIndex(2);
+    app.processEvents();
+    assert(logView->toPlainText().contains("任务已入队"));
+    mainTabWidget->setCurrentIndex(1);
+    app.processEvents();
+    assert(queueTable->rowCount() == rowCountAfterSubmit);
     auto* statusItem = queueTable->item(0, 4);
     auto* progressItem = queueTable->item(0, 5);
     auto* messageItem = queueTable->item(0, 6);
@@ -361,15 +450,15 @@ int main(int argc, char** argv) {
     assert(messageItem->data(Qt::UserRole).toString().startsWith("error-class:"));
     assert(!messageItem->toolTip().isEmpty());
 
-    bool foundCogLikeOutput = false;
+    bool foundPngOutput = false;
     for (int row = 0; row < queueTable->rowCount(); ++row) {
         auto* outputItem = queueTable->item(row, 2);
         if (outputItem != nullptr && outputItem->text().endsWith(".png")) {
-            foundCogLikeOutput = true;
+            foundPngOutput = true;
             break;
         }
     }
-    assert(foundCogLikeOutput);
+    assert(foundPngOutput);
 
     const int originalRowCount = queueTable->rowCount();
     queueTable->selectRow(0);
