@@ -548,26 +548,44 @@ PresetPanel::PresetPanel(QWidget* parent) : QWidget(parent) {
     selectProjectionButton_->setToolTip("打开坐标系选择窗口");
     projectionLayout->addWidget(targetEpsgEdit_, 1);
     projectionLayout->addWidget(selectProjectionButton_);
+    targetPixelSizeModeCombo_ = new QComboBox(this);
+    targetPixelSizeModeCombo_->setObjectName("targetPixelSizeModeCombo");
+    targetPixelSizeModeCombo_->addItems({"沿用源分辨率", "指定像元大小"});
     targetPixelSizeXSpin_ = new QDoubleSpinBox(this);
     targetPixelSizeXSpin_->setObjectName("targetPixelSizeXSpin");
     targetPixelSizeXSpin_->setRange(0.0, 100000000.0);
     targetPixelSizeXSpin_->setDecimals(6);
-    targetPixelSizeXSpin_->setSpecialValueText("沿用源空间分辨率");
-    targetPixelSizeXSpin_->setSuffix(" 坐标单位");
-    targetPixelSizeXSpin_->setToolTip("目标像元大小 / 空间分辨率 X，0 表示沿用源数据");
+    targetPixelSizeXSpin_->setSuffix(" 单位");
+    targetPixelSizeXSpin_->setToolTip("目标像元大小 X，单位为目标坐标系单位");
     targetPixelSizeYSpin_ = new QDoubleSpinBox(this);
     targetPixelSizeYSpin_->setObjectName("targetPixelSizeYSpin");
     targetPixelSizeYSpin_->setRange(0.0, 100000000.0);
     targetPixelSizeYSpin_->setDecimals(6);
-    targetPixelSizeYSpin_->setSpecialValueText("沿用源空间分辨率");
-    targetPixelSizeYSpin_->setSuffix(" 坐标单位");
-    targetPixelSizeYSpin_->setToolTip("目标像元大小 / 空间分辨率 Y，0 表示沿用源数据");
-    auto* pixelSizeRow = new QWidget(this);
+    targetPixelSizeYSpin_->setSuffix(" 单位");
+    targetPixelSizeYSpin_->setToolTip("目标像元大小 Y，单位为目标坐标系单位");
+    targetPixelSizeLockCheck_ = new QCheckBox("锁定 X/Y", this);
+    targetPixelSizeLockCheck_->setObjectName("targetPixelSizeLockCheck");
+    targetPixelSizeLockCheck_->setChecked(true);
+    targetPixelSizeHelpLabel_ = new QLabel("单位为目标坐标系单位；地理坐标系通常为度，投影坐标系通常为米", this);
+    targetPixelSizeHelpLabel_->setObjectName("targetPixelSizeHelpLabel");
+    targetPixelSizeHelpLabel_->setProperty("semanticRole", QStringLiteral("summary"));
+    targetPixelSizeHelpLabel_->setWordWrap(true);
+    auto* pixelSizePanel = new QWidget(this);
+    auto* pixelSizePanelLayout = new QVBoxLayout(pixelSizePanel);
+    pixelSizePanelLayout->setContentsMargins(0, 0, 0, 0);
+    pixelSizePanelLayout->setSpacing(6);
+    pixelSizePanelLayout->addWidget(targetPixelSizeModeCombo_);
+    auto* pixelSizeRow = new QWidget(pixelSizePanel);
     auto* pixelSizeLayout = new QHBoxLayout(pixelSizeRow);
     pixelSizeLayout->setContentsMargins(0, 0, 0, 0);
     pixelSizeLayout->setSpacing(6);
+    pixelSizeLayout->addWidget(new QLabel("X", pixelSizeRow));
     pixelSizeLayout->addWidget(targetPixelSizeXSpin_);
+    pixelSizeLayout->addWidget(new QLabel("Y", pixelSizeRow));
     pixelSizeLayout->addWidget(targetPixelSizeYSpin_);
+    pixelSizeLayout->addWidget(targetPixelSizeLockCheck_);
+    pixelSizePanelLayout->addWidget(pixelSizeRow);
+    pixelSizePanelLayout->addWidget(targetPixelSizeHelpLabel_);
     resamplingCombo_ = new QComboBox(this);
     resamplingCombo_->setObjectName("resamplingCombo");
     resamplingCombo_->addItems({"nearest", "bilinear", "cubic", "lanczos", "average"});
@@ -595,7 +613,7 @@ PresetPanel::PresetPanel(QWidget* parent) : QWidget(parent) {
     formLayout->addRow("金字塔等级", overviewLevelsEdit_);
     formLayout->addRow("金字塔重采样", overviewResamplingCombo_);
     formLayout->addRow("目标坐标系", projectionRow);
-    formLayout->addRow("目标像元大小 / 空间分辨率", pixelSizeRow);
+    formLayout->addRow("输出分辨率", pixelSizePanel);
     formLayout->addRow("重投影采样", resamplingCombo_);
     formLayout->addRow("覆盖输出", overwriteCheck_);
     formLayout->addRow("Creation Options(JSON)", gdalOptionsEdit_);
@@ -734,7 +752,24 @@ void PresetPanel::wireEvents() {
         targetEpsgEdit_->setText(selected);
         formChanged();
     });
-    connect(targetPixelSizeXSpin_, &QDoubleSpinBox::valueChanged, this, [formChanged](double) { formChanged(); });
+    connect(targetPixelSizeModeCombo_, &QComboBox::currentIndexChanged, this, [this, formChanged](int) {
+        updateTargetPixelSizeControls();
+        formChanged();
+    });
+    connect(targetPixelSizeLockCheck_, &QCheckBox::checkStateChanged, this, [this, formChanged](Qt::CheckState) {
+        if (targetPixelSizeLockCheck_->isChecked()) {
+            const QSignalBlocker yBlocker(targetPixelSizeYSpin_);
+            targetPixelSizeYSpin_->setValue(targetPixelSizeXSpin_->value());
+        }
+        formChanged();
+    });
+    connect(targetPixelSizeXSpin_, &QDoubleSpinBox::valueChanged, this, [this, formChanged](double value) {
+        if (targetPixelSizeLockCheck_->isChecked()) {
+            const QSignalBlocker yBlocker(targetPixelSizeYSpin_);
+            targetPixelSizeYSpin_->setValue(value);
+        }
+        formChanged();
+    });
     connect(targetPixelSizeYSpin_, &QDoubleSpinBox::valueChanged, this, [formChanged](double) { formChanged(); });
     connect(resamplingCombo_, &QComboBox::currentIndexChanged, this, [formChanged](int) { formChanged(); });
     connect(overwriteCheck_, &QCheckBox::checkStateChanged, this, [formChanged](Qt::CheckState) {
@@ -841,6 +876,17 @@ void PresetPanel::updateCompressionControls() {
     compressionWebpLosslessCheck_->setVisible(state.showWebpLossless);
 }
 
+void PresetPanel::updateTargetPixelSizeControls() {
+    const bool specifySize = targetPixelSizeModeCombo_->currentText() == "指定像元大小";
+    targetPixelSizeXSpin_->setEnabled(specifySize);
+    targetPixelSizeYSpin_->setEnabled(specifySize);
+    targetPixelSizeLockCheck_->setEnabled(specifySize);
+    if (specifySize && targetPixelSizeLockCheck_->isChecked()) {
+        const QSignalBlocker yBlocker(targetPixelSizeYSpin_);
+        targetPixelSizeYSpin_->setValue(targetPixelSizeXSpin_->value());
+    }
+}
+
 void PresetPanel::loadCompressionControlsFromOptions(const nlohmann::json& options) {
     std::string driverName = "GTiff";
     if (const auto* definition = findFormatDefinition(outputFormatCombo_->currentText()); definition != nullptr) {
@@ -898,6 +944,7 @@ void PresetPanel::loadCompressionControlsFromOptions(const nlohmann::json& optio
 void PresetPanel::applyPresetToForm(const rastertoolbox::config::Preset& preset) {
     const QSignalBlocker formatBlocker(outputFormatCombo_);
     const QSignalBlocker compressionBlocker(compressionMethodCombo_);
+    const QSignalBlocker pixelModeBlocker(targetPixelSizeModeCombo_);
     const QSignalBlocker pixelXBlocker(targetPixelSizeXSpin_);
     const QSignalBlocker pixelYBlocker(targetPixelSizeYSpin_);
 
@@ -914,8 +961,12 @@ void PresetPanel::applyPresetToForm(const rastertoolbox::config::Preset& preset)
     overviewLevelsEdit_->setText(joinOverviewLevels(preset.overviewLevels));
     overviewResamplingCombo_->setCurrentText(QString::fromStdString(preset.overviewResampling));
     targetEpsgEdit_->setText(QString::fromStdString(preset.targetEpsg));
+    targetPixelSizeModeCombo_->setCurrentText(
+        preset.targetPixelSizeX > 0.0 && preset.targetPixelSizeY > 0.0 ? "指定像元大小" : "沿用源分辨率"
+    );
     targetPixelSizeXSpin_->setValue(preset.targetPixelSizeX);
     targetPixelSizeYSpin_->setValue(preset.targetPixelSizeY);
+    updateTargetPixelSizeControls();
     resamplingCombo_->setCurrentText(QString::fromStdString(preset.resampling));
     overwriteCheck_->setChecked(preset.overwriteExisting);
     const auto& creationOptions = preset.creationOptions.empty() ? preset.gdalOptions : preset.creationOptions;
@@ -946,8 +997,13 @@ rastertoolbox::config::Preset PresetPanel::presetFromForm() const {
     preset.overviewLevels = buildOverviewsCheck_->isChecked() ? overviewLevelsFromForm() : std::vector<int>{};
     preset.overviewResampling = overviewResamplingCombo_->currentText().toStdString();
     preset.targetEpsg = normalizeEpsgInput(targetEpsgEdit_->text()).toStdString();
-    preset.targetPixelSizeX = targetPixelSizeXSpin_->value();
-    preset.targetPixelSizeY = targetPixelSizeYSpin_->value();
+    if (targetPixelSizeModeCombo_->currentText() == "指定像元大小") {
+        preset.targetPixelSizeX = targetPixelSizeXSpin_->value();
+        preset.targetPixelSizeY = targetPixelSizeYSpin_->value();
+    } else {
+        preset.targetPixelSizeX = 0.0;
+        preset.targetPixelSizeY = 0.0;
+    }
     preset.resampling = resamplingCombo_->currentText().toStdString();
     preset.overwriteExisting = overwriteCheck_->isChecked();
     const auto rawGdalOptions = gdalOptionsEdit_->toPlainText().trimmed().toStdString();

@@ -44,6 +44,7 @@ private:
     [[nodiscard]] std::string gdalOptionsValidationError() const;
     void wireEvents();
     void updateCompressionControls();
+    void updateTargetPixelSizeControls();
     void loadCompressionControlsFromOptions(const nlohmann::json& options);
 
     std::vector<rastertoolbox::config::Preset> presets_;
@@ -66,8 +67,11 @@ private:
     QComboBox* overviewResamplingCombo_{};
     QLineEdit* targetEpsgEdit_{};
     QPushButton* selectProjectionButton_{};
+    QComboBox* targetPixelSizeModeCombo_{};
     QDoubleSpinBox* targetPixelSizeXSpin_{};
     QDoubleSpinBox* targetPixelSizeYSpin_{};
+    QCheckBox* targetPixelSizeLockCheck_{};
+    QLabel* targetPixelSizeHelpLabel_{};
     QComboBox* resamplingCombo_{};
     QCheckBox* overwriteCheck_{};
     QPlainTextEdit* gdalOptionsEdit_{};

@@ -23,6 +23,7 @@
 #include <QUrl>
 #include <QVBoxLayout>
 #include <QWidget>
+#include <QtConcurrent>
 
 #include "rastertoolbox/common/Timestamp.hpp"
 #include "rastertoolbox/config/JsonSchemas.hpp"
@@ -388,54 +389,90 @@ void MainWindow::handleImportRequested() {
 }
 
 void MainWindow::handleSourceSelected(const std::string& path) {
-    std::string error;
-    auto metadata = datasetReader_.readMetadata(path, error);
-    if (!metadata.has_value()) {
-        sourcePanel_->showSourceError(QString::fromStdString("导入失败: " + error));
+    const std::uint64_t requestId = ++sourceDetailRequestCounter_;
+    activeSourceDetailRequestId_ = requestId;
+    activeSourceDetailPath_ = path;
+    sourcePanel_->showError({});
+    sourcePanel_->setMetadataLoading("正在读取元数据...");
+    sourcePanel_->setPreviewLoading("正在生成预览...");
+
+    auto* watcher = new QFutureWatcher<SourceDetailResult>(this);
+    sourceDetailWatcher_ = watcher;
+    connect(watcher, &QFutureWatcher<SourceDetailResult>::finished, this, [this, watcher]() {
+        handleSourceDetailFinished(watcher);
+    });
+
+    watcher->setFuture(QtConcurrent::run([requestId, path]() {
+        SourceDetailResult result;
+        result.requestId = requestId;
+        result.path = path;
+
+        rastertoolbox::engine::DatasetReader reader;
+        result.metadata = reader.readMetadata(path, result.metadataError);
+        if (result.metadata.has_value()) {
+            result.preview = reader.readPreview(path, 256, result.previewError);
+        }
+        return result;
+    }));
+}
+
+void MainWindow::handleSourceDetailFinished(QFutureWatcher<SourceDetailResult>* watcher) {
+    const auto result = watcher->result();
+    watcher->deleteLater();
+    if (sourceDetailWatcher_ == watcher) {
+        sourceDetailWatcher_ = nullptr;
+    }
+
+    if (result.requestId != activeSourceDetailRequestId_ || result.path != activeSourceDetailPath_) {
+        return;
+    }
+
+    if (!result.metadata.has_value()) {
+        sourcePanel_->showSourceError(QString::fromStdString("导入失败: " + result.metadataError));
         sourcePanel_->clearPreview("预览不可用");
         appendLog(
             rastertoolbox::dispatcher::EventSource::Engine,
             rastertoolbox::dispatcher::LogLevel::Error,
-            "导入失败: " + error,
+            "导入失败: " + result.metadataError,
             {},
             -1.0,
             "metadata",
             rastertoolbox::common::ErrorClass::ImportError,
             "IMPORT_FAILED",
-            error
+            result.metadataError
         );
         return;
     }
 
-    sourcePanel_->showError({});
-    auto datasetInfo = *metadata;
+    auto datasetInfo = *result.metadata;
     datasetInfo.suggestedOutputDirectory = currentPreset_.outputDirectory;
-    sourceMetadataCache_[path] = datasetInfo;
+    sourceMetadataCache_[result.path] = datasetInfo;
     sourcePanel_->setMetadata(datasetInfo);
     sourcePanel_->setBatchSummary(QString::fromStdString(buildBatchSummary()));
 
-    std::string previewError;
-    if (const auto preview = datasetReader_.readPreview(path, 256, previewError); preview.has_value()) {
+    if (result.preview.has_value()) {
         QImage image(
-            preview->rgba.data(),
-            preview->width,
-            preview->height,
+            result.preview->rgba.data(),
+            result.preview->width,
+            result.preview->height,
             QImage::Format_RGBA8888
         );
         sourcePanel_->setPreview(image.copy());
     } else {
-        sourcePanel_->clearPreview("预览不可用");
-        if (!previewError.empty()) {
+        sourcePanel_->showPreviewError(QString::fromStdString(
+            result.previewError.empty() ? "预览生成失败" : "预览生成失败: " + result.previewError
+        ));
+        if (!result.previewError.empty()) {
             appendLog(
                 rastertoolbox::dispatcher::EventSource::Engine,
                 rastertoolbox::dispatcher::LogLevel::Warning,
-                "预览生成失败: " + previewError,
+                "预览生成失败: " + result.previewError,
                 {},
                 -1.0,
                 "preview",
                 rastertoolbox::common::ErrorClass::TaskError,
                 "PREVIEW_FAILED",
-                previewError
+                result.previewError
             );
         }
     }
@@ -443,7 +480,7 @@ void MainWindow::handleSourceSelected(const std::string& path) {
     appendLog(
         rastertoolbox::dispatcher::EventSource::Engine,
         rastertoolbox::dispatcher::LogLevel::Info,
-        "元数据读取成功: " + path,
+        "元数据读取成功: " + result.path,
         {},
         -1.0,
         "metadata"
@@ -567,6 +604,8 @@ void MainWindow::handleSavePresetRequested(const rastertoolbox::config::Preset& 
 }
 
 void MainWindow::handleClearSourcesRequested() {
+    activeSourceDetailRequestId_ = ++sourceDetailRequestCounter_;
+    activeSourceDetailPath_.clear();
     sourceMetadataCache_.clear();
     sourcePanel_->clearSources();
     appendLog(

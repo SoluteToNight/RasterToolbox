@@ -298,6 +298,7 @@ QTableWidget:focus {
 
 QPlainTextEdit[surfaceRole="codeEditor"],
 QPlainTextEdit[surfaceRole="logConsole"],
+QPlainTextEdit[surfaceRole="metadata"],
 QTextEdit[surfaceRole="metadata"] {
     background: #f8fbff;
     border-color: #cbd7e6;
@@ -310,10 +311,15 @@ QListWidget[surfaceRole="list"] {
 }
 
 QTableWidget[surfaceRole="sourceTable"],
+QTableWidget[surfaceRole="metadata"],
 QWidget[surfaceRole="detailPanel"] {
     background: #ffffff;
     border: 1px solid #cbd7e6;
     border-radius: 8px;
+}
+
+QTableWidget[surfaceRole="metadata"] {
+    alternate-background-color: #f3f7fc;
 }
 
 QWidget#queueLogColumn {

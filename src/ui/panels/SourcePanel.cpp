@@ -9,11 +9,11 @@
 #include <QHBoxLayout>
 #include <QItemSelectionModel>
 #include <QLabel>
+#include <QPlainTextEdit>
 #include <QPixmap>
 #include <QPushButton>
 #include <QTableWidget>
 #include <QTableWidgetItem>
-#include <QTextEdit>
 #include <QVBoxLayout>
 
 namespace rastertoolbox::ui::panels {
@@ -57,6 +57,10 @@ QTableWidgetItem* createItem(const QString& text) {
     auto* item = new QTableWidgetItem(text);
     item->setFlags(item->flags() & ~Qt::ItemIsEditable);
     return item;
+}
+
+QString numberText(const double value) {
+    return QString::number(value, 'g', 12);
 }
 
 } // namespace
@@ -130,12 +134,33 @@ SourcePanel::SourcePanel(QWidget* parent) : QWidget(parent) {
     previewLabel_->setWordWrap(true);
     detailLayout->addWidget(previewLabel_);
 
-    metadataView_ = new QTextEdit(detailPanel_);
-    metadataView_->setObjectName("metadataView");
-    metadataView_->setProperty("surfaceRole", QStringLiteral("metadata"));
-    metadataView_->setReadOnly(true);
-    metadataView_->setPlaceholderText("请选择源数据查看元数据");
-    detailLayout->addWidget(metadataView_, 1);
+    previewLoadingLabel_ = new QLabel(detailPanel_);
+    previewLoadingLabel_->setObjectName("sourcePreviewLoadingLabel");
+    previewLoadingLabel_->setProperty("semanticRole", QStringLiteral("summary"));
+    previewLoadingLabel_->setWordWrap(true);
+    detailLayout->addWidget(previewLoadingLabel_);
+
+    metadataSummaryTable_ = new QTableWidget(detailPanel_);
+    metadataSummaryTable_->setObjectName("metadataSummaryTable");
+    metadataSummaryTable_->setProperty("surfaceRole", QStringLiteral("metadata"));
+    metadataSummaryTable_->setColumnCount(2);
+    metadataSummaryTable_->setHorizontalHeaderLabels({"属性", "值"});
+    metadataSummaryTable_->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+    metadataSummaryTable_->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
+    metadataSummaryTable_->verticalHeader()->setVisible(false);
+    metadataSummaryTable_->setAlternatingRowColors(true);
+    metadataSummaryTable_->setShowGrid(false);
+    metadataSummaryTable_->setSelectionMode(QAbstractItemView::NoSelection);
+    metadataSummaryTable_->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    metadataSummaryTable_->setMinimumHeight(180);
+    detailLayout->addWidget(metadataSummaryTable_, 1);
+
+    metadataProjectionDetails_ = new QPlainTextEdit(detailPanel_);
+    metadataProjectionDetails_->setObjectName("metadataProjectionDetails");
+    metadataProjectionDetails_->setProperty("surfaceRole", QStringLiteral("metadata"));
+    metadataProjectionDetails_->setReadOnly(true);
+    metadataProjectionDetails_->setPlaceholderText("请选择源数据查看坐标系 WKT");
+    detailLayout->addWidget(metadataProjectionDetails_, 1);
 
     metadataDetailsButton_ = new QPushButton(detailPanel_);
     metadataDetailsButton_->setObjectName("sourceMetadataDetailsButton");
@@ -214,7 +239,9 @@ void SourcePanel::addSourcePath(const QString& path) {
 
 void SourcePanel::clearSources() {
     sourceTable_->setRowCount(0);
-    metadataView_->clear();
+    metadataSummaryTable_->setRowCount(0);
+    metadataProjectionDetails_->clear();
+    previewLoadingLabel_->clear();
     errorLabel_->clear();
     clearPreview("预览不可用");
     setMetadataDetailsExpanded(true);
@@ -277,7 +304,19 @@ void SourcePanel::setBatchSummary(const QString& summary) {
     batchSummaryLabel_->setText(summary);
 }
 
+void SourcePanel::setMetadataLoading(const QString& message) {
+    setMetadataMessage("状态", message.isEmpty() ? "正在读取元数据..." : message);
+    metadataProjectionDetails_->clear();
+}
+
+void SourcePanel::setPreviewLoading(const QString& message) {
+    previewLabel_->setPixmap(QPixmap());
+    previewLabel_->setText("预览加载中");
+    previewLoadingLabel_->setText(message.isEmpty() ? "正在生成预览..." : message);
+}
+
 void SourcePanel::setPreview(const QImage& preview) {
+    previewLoadingLabel_->clear();
     previewLabel_->setText({});
     previewLabel_->setPixmap(
         QPixmap::fromImage(preview).scaled(
@@ -289,8 +328,15 @@ void SourcePanel::setPreview(const QImage& preview) {
 }
 
 void SourcePanel::clearPreview(const QString& message) {
+    previewLoadingLabel_->clear();
     previewLabel_->setPixmap(QPixmap());
     previewLabel_->setText(message.isEmpty() ? "预览不可用" : message);
+}
+
+void SourcePanel::showPreviewError(const QString& message) {
+    previewLabel_->setPixmap(QPixmap());
+    previewLabel_->setText("预览不可用");
+    previewLoadingLabel_->setText(message);
 }
 
 void SourcePanel::showError(const QString& message) {
@@ -308,7 +354,7 @@ void SourcePanel::showSourceError(const QString& message) {
         sourceTable_->item(row, DriverColumn)->setText("读取失败");
         sourceTable_->item(row, DriverColumn)->setToolTip(message);
     }
-    metadataView_->setPlainText(message);
+    setMetadataMessage("错误", message);
 }
 
 void SourcePanel::setOnImportRequested(std::function<void()> callback) {
@@ -351,30 +397,48 @@ void SourcePanel::updateSelectionSummary() {
 
 void SourcePanel::setMetadataDetailsExpanded(const bool expanded) {
     metadataDetailsExpanded_ = expanded;
-    metadataView_->setVisible(expanded);
-    metadataDetailsButton_->setText(expanded ? "隐藏完整元数据" : "查看完整元数据");
+    metadataProjectionDetails_->setVisible(expanded);
+    metadataDetailsButton_->setText(expanded ? "隐藏坐标系 WKT" : "查看坐标系 WKT");
 }
 
 void SourcePanel::setDetailText(const rastertoolbox::engine::DatasetInfo& info) {
-    QString content;
-    content += QString("文件: %1\n").arg(QString::fromStdString(std::filesystem::path(info.path).filename().string()));
-    content += QString("Path: %1\n").arg(QString::fromStdString(info.path));
-    content += QString("Driver: %1\n").arg(QString::fromStdString(info.driver));
-    content += QString("Size: %1 x %2\n").arg(info.width).arg(info.height);
-    content += QString("Bands: %1\n").arg(info.bandCount);
-    content += QString("EPSG: %1\n").arg(QString::fromStdString(info.epsg.empty() ? "unknown" : info.epsg));
-    content += QString("Pixel Type: %1\n").arg(QString::fromStdString(info.pixelType));
-    content += QString("Overviews: %1\n").arg(info.overviewCount);
-    content += QString("Has Overviews: %1\n").arg(info.hasOverviews ? "yes" : "no");
-    content += QString("NoData: %1\n")
-                   .arg(info.hasNoData ? QString::fromStdString(info.noDataValue) : QStringLiteral("none"));
-    content += QString("Suggested Output Dir: %1\n").arg(QString::fromStdString(info.suggestedOutputDirectory));
+    metadataSummaryTable_->setRowCount(0);
+    const auto addRow = [this](const QString& label, const QString& value) {
+        const int row = metadataSummaryTable_->rowCount();
+        metadataSummaryTable_->insertRow(row);
+        metadataSummaryTable_->setItem(row, 0, createItem(label));
+        metadataSummaryTable_->setItem(row, 1, createItem(value));
+    };
 
-    if (!info.projectionWkt.empty()) {
-        content += QString("Projection(WKT): %1\n").arg(QString::fromStdString(info.projectionWkt));
-    }
+    addRow("文件", QString::fromStdString(std::filesystem::path(info.path).filename().string()));
+    addRow("路径", QString::fromStdString(info.path));
+    addRow("格式", QString::fromStdString(info.driver.empty() ? "未知" : info.driver));
+    addRow("尺寸", QString("%1 x %2 像素").arg(info.width).arg(info.height));
+    addRow("波段", QString::number(info.bandCount));
+    addRow("坐标系", QString::fromStdString(info.crsName.empty() ? (info.epsg.empty() ? "未知" : "EPSG:" + info.epsg) : info.crsName));
+    addRow("EPSG", QString::fromStdString(info.epsg.empty() ? "未知" : "EPSG:" + info.epsg));
+    addRow("像元类型", QString::fromStdString(info.pixelType.empty() ? "未知" : info.pixelType));
+    addRow("像元大小", info.hasGeoTransform
+        ? QString("%1 x %2").arg(numberText(info.pixelSizeX), numberText(info.pixelSizeY))
+        : QStringLiteral("未知"));
+    addRow("范围", info.hasGeoTransform
+        ? QString("X %1 - %2, Y %3 - %4")
+              .arg(numberText(info.extentMinX), numberText(info.extentMaxX), numberText(info.extentMinY), numberText(info.extentMaxY))
+        : QStringLiteral("未知"));
+    addRow("金字塔", info.hasOverviews ? QString("%1 个").arg(info.overviewCount) : QStringLiteral("无"));
+    addRow("NoData", info.hasNoData ? QString::fromStdString(info.noDataValue) : QStringLiteral("无"));
+    addRow("建议输出目录", QString::fromStdString(info.suggestedOutputDirectory));
+    metadataSummaryTable_->resizeRowsToContents();
 
-    metadataView_->setPlainText(content);
+    metadataProjectionDetails_->setPlainText(QString::fromStdString(info.projectionWkt));
+}
+
+void SourcePanel::setMetadataMessage(const QString& label, const QString& message) {
+    metadataSummaryTable_->setRowCount(0);
+    metadataSummaryTable_->insertRow(0);
+    metadataSummaryTable_->setItem(0, 0, createItem(label));
+    metadataSummaryTable_->setItem(0, 1, createItem(message));
+    metadataSummaryTable_->resizeRowsToContents();
 }
 
 } // namespace rastertoolbox::ui::panels

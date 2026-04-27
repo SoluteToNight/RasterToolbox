@@ -2,12 +2,90 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
+#include <limits>
 #include <sstream>
 
 #include <gdal_priv.h>
 #include <ogr_spatialref.h>
 
 namespace rastertoolbox::engine {
+
+namespace {
+
+constexpr int PreviewDimensionCeiling = 384;
+
+struct RasterCorner {
+    double x{0.0};
+    double y{0.0};
+};
+
+RasterCorner transformCorner(const double transform[6], const double pixel, const double line) {
+    return RasterCorner{
+        .x = transform[0] + pixel * transform[1] + line * transform[2],
+        .y = transform[3] + pixel * transform[4] + line * transform[5],
+    };
+}
+
+GDALRasterBand* bestOverviewForPreview(GDALRasterBand* band, const int previewWidth, const int previewHeight) {
+    if (band == nullptr) {
+        return nullptr;
+    }
+
+    GDALRasterBand* bestBand = band;
+    std::int64_t bestPixels = static_cast<std::int64_t>(band->GetXSize()) * static_cast<std::int64_t>(band->GetYSize());
+    for (int index = 0; index < band->GetOverviewCount(); ++index) {
+        GDALRasterBand* overview = band->GetOverview(index);
+        if (overview == nullptr || overview->GetXSize() < previewWidth || overview->GetYSize() < previewHeight) {
+            continue;
+        }
+
+        const std::int64_t overviewPixels = static_cast<std::int64_t>(overview->GetXSize()) *
+            static_cast<std::int64_t>(overview->GetYSize());
+        if (overviewPixels < bestPixels) {
+            bestBand = overview;
+            bestPixels = overviewPixels;
+        }
+    }
+
+    return bestBand;
+}
+
+bool readBandPreview(
+    GDALRasterBand* sourceBand,
+    std::vector<unsigned char>& buffer,
+    const int previewWidth,
+    const int previewHeight,
+    std::string& errorMessage
+) {
+    GDALRasterBand* readBand = bestOverviewForPreview(sourceBand, previewWidth, previewHeight);
+    if (readBand == nullptr) {
+        errorMessage = "无法读取预览波段";
+        return false;
+    }
+
+    if (readBand->RasterIO(
+            GF_Read,
+            0,
+            0,
+            readBand->GetXSize(),
+            readBand->GetYSize(),
+            buffer.data(),
+            previewWidth,
+            previewHeight,
+            GDT_Byte,
+            0,
+            0,
+            nullptr
+        ) != CE_None) {
+        errorMessage = CPLGetLastErrorMsg();
+        return false;
+    }
+
+    return true;
+}
+
+} // namespace
 
 std::optional<DatasetInfo> DatasetReader::readMetadata(
     const std::string& path,
@@ -39,6 +117,34 @@ std::optional<DatasetInfo> DatasetReader::readMetadata(
             if (authorityCode != nullptr) {
                 info.epsg = authorityCode;
             }
+            const char* name = spatialRef.GetName();
+            if (name != nullptr) {
+                info.crsName = name;
+            }
+        }
+    }
+
+    double geoTransform[6]{};
+    if (dataset->GetGeoTransform(geoTransform) == CE_None) {
+        info.hasGeoTransform = true;
+        info.pixelSizeX = std::abs(geoTransform[1]);
+        info.pixelSizeY = std::abs(geoTransform[5]);
+
+        const RasterCorner corners[] = {
+            transformCorner(geoTransform, 0.0, 0.0),
+            transformCorner(geoTransform, static_cast<double>(info.width), 0.0),
+            transformCorner(geoTransform, 0.0, static_cast<double>(info.height)),
+            transformCorner(geoTransform, static_cast<double>(info.width), static_cast<double>(info.height)),
+        };
+        info.extentMinX = corners[0].x;
+        info.extentMaxX = corners[0].x;
+        info.extentMinY = corners[0].y;
+        info.extentMaxY = corners[0].y;
+        for (const auto& corner : corners) {
+            info.extentMinX = std::min(info.extentMinX, corner.x);
+            info.extentMaxX = std::max(info.extentMaxX, corner.x);
+            info.extentMinY = std::min(info.extentMinY, corner.y);
+            info.extentMaxY = std::max(info.extentMaxY, corner.y);
         }
     }
 
@@ -85,7 +191,7 @@ std::optional<DatasetPreview> DatasetReader::readPreview(
         return std::nullopt;
     }
 
-    const int clampedMaxDimension = std::max(1, maxDimension);
+    const int clampedMaxDimension = std::clamp(maxDimension, 1, PreviewDimensionCeiling);
     const double scale = std::min(
         1.0,
         static_cast<double>(clampedMaxDimension) / static_cast<double>(std::max(width, height))
@@ -96,57 +202,41 @@ std::optional<DatasetPreview> DatasetReader::readPreview(
     DatasetPreview preview;
     preview.width = previewWidth;
     preview.height = previewHeight;
+    if (
+        previewWidth <= 0 ||
+        previewHeight <= 0 ||
+        previewWidth > PreviewDimensionCeiling ||
+        previewHeight > PreviewDimensionCeiling ||
+        static_cast<std::size_t>(previewWidth) > std::numeric_limits<std::size_t>::max() / static_cast<std::size_t>(previewHeight * 4)
+    ) {
+        GDALClose(dataset);
+        errorMessage = "预览尺寸超出安全范围";
+        return std::nullopt;
+    }
     preview.rgba.resize(static_cast<std::size_t>(previewWidth * previewHeight * 4), 255);
 
     if (bandCount >= 3) {
-        std::vector<unsigned char> rgb(static_cast<std::size_t>(previewWidth * previewHeight * 3), 0);
-        int bandMap[] = {1, 2, 3};
-        if (dataset->RasterIO(
-                GF_Read,
-                0,
-                0,
-                width,
-                height,
-                rgb.data(),
-                previewWidth,
-                previewHeight,
-                GDT_Byte,
-                3,
-                bandMap,
-                0,
-                0,
-                0,
-                nullptr
-            ) != CE_None) {
+        std::vector<unsigned char> red(static_cast<std::size_t>(previewWidth * previewHeight), 0);
+        std::vector<unsigned char> green(static_cast<std::size_t>(previewWidth * previewHeight), 0);
+        std::vector<unsigned char> blue(static_cast<std::size_t>(previewWidth * previewHeight), 0);
+        if (
+            !readBandPreview(dataset->GetRasterBand(1), red, previewWidth, previewHeight, errorMessage) ||
+            !readBandPreview(dataset->GetRasterBand(2), green, previewWidth, previewHeight, errorMessage) ||
+            !readBandPreview(dataset->GetRasterBand(3), blue, previewWidth, previewHeight, errorMessage)
+        ) {
             GDALClose(dataset);
-            errorMessage = CPLGetLastErrorMsg();
             return std::nullopt;
         }
 
         for (int index = 0; index < previewWidth * previewHeight; ++index) {
-            preview.rgba[static_cast<std::size_t>(index * 4)] = rgb[static_cast<std::size_t>(index * 3)];
-            preview.rgba[static_cast<std::size_t>(index * 4 + 1)] = rgb[static_cast<std::size_t>(index * 3 + 1)];
-            preview.rgba[static_cast<std::size_t>(index * 4 + 2)] = rgb[static_cast<std::size_t>(index * 3 + 2)];
+            preview.rgba[static_cast<std::size_t>(index * 4)] = red[static_cast<std::size_t>(index)];
+            preview.rgba[static_cast<std::size_t>(index * 4 + 1)] = green[static_cast<std::size_t>(index)];
+            preview.rgba[static_cast<std::size_t>(index * 4 + 2)] = blue[static_cast<std::size_t>(index)];
         }
     } else {
         std::vector<unsigned char> gray(static_cast<std::size_t>(previewWidth * previewHeight), 0);
-        GDALRasterBand* band = dataset->GetRasterBand(1);
-        if (band == nullptr || band->RasterIO(
-                GF_Read,
-                0,
-                0,
-                width,
-                height,
-                gray.data(),
-                previewWidth,
-                previewHeight,
-                GDT_Byte,
-                0,
-                0,
-                nullptr
-            ) != CE_None) {
+        if (!readBandPreview(dataset->GetRasterBand(1), gray, previewWidth, previewHeight, errorMessage)) {
             GDALClose(dataset);
-            errorMessage = CPLGetLastErrorMsg();
             return std::nullopt;
         }
 

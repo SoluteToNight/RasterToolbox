@@ -16,6 +16,8 @@ int main() {
 
     GDALDataset* dataset = driver->Create(tempPath.string().c_str(), 16, 8, 1, GDT_Byte, nullptr);
     assert(dataset != nullptr);
+    const double geoTransform[] = {100.0, 2.5, 0.0, 200.0, 0.0, -2.5};
+    assert(dataset->SetGeoTransform(const_cast<double*>(geoTransform)) == CE_None);
     GDALRasterBand* band = dataset->GetRasterBand(1);
     assert(band != nullptr);
     assert(band->SetNoDataValue(5.0) == CE_None);
@@ -34,6 +36,20 @@ int main() {
     assert(info->hasNoData);
     assert(info->noDataValue == "5");
     assert(info->epsg.empty());
+    assert(info->hasGeoTransform);
+    assert(info->pixelSizeX == 2.5);
+    assert(info->pixelSizeY == 2.5);
+    assert(info->extentMinX == 100.0);
+    assert(info->extentMaxX == 140.0);
+    assert(info->extentMinY == 180.0);
+    assert(info->extentMaxY == 200.0);
+
+    std::string previewError;
+    auto preview = reader.readPreview(tempPath.string(), 8, previewError);
+    assert(preview.has_value());
+    assert(preview->width <= 8);
+    assert(preview->height <= 8);
+    assert(preview->rgba.size() == static_cast<std::size_t>(preview->width * preview->height * 4));
 
     std::filesystem::remove(tempPath);
     return 0;

@@ -1,10 +1,12 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 #include <unordered_map>
 #include <string>
 #include <vector>
 
+#include <QFutureWatcher>
 #include <QMainWindow>
 
 #include "rastertoolbox/config/AppSettings.hpp"
@@ -39,6 +41,15 @@ private:
 
     void handleImportRequested();
     void handleSourceSelected(const std::string& path);
+    struct SourceDetailResult {
+        std::uint64_t requestId{0};
+        std::string path;
+        std::optional<rastertoolbox::engine::DatasetInfo> metadata;
+        std::optional<rastertoolbox::engine::DatasetPreview> preview;
+        std::string metadataError;
+        std::string previewError;
+    };
+    void handleSourceDetailFinished(QFutureWatcher<SourceDetailResult>* watcher);
     void handlePresetChanged(const rastertoolbox::config::Preset& preset);
     void handleLoadPresetRequested();
     void handleSavePresetRequested(const rastertoolbox::config::Preset& preset);
@@ -97,6 +108,10 @@ private:
 
     std::vector<rastertoolbox::config::Preset> presets_;
     std::unordered_map<std::string, rastertoolbox::engine::DatasetInfo> sourceMetadataCache_;
+    QFutureWatcher<SourceDetailResult>* sourceDetailWatcher_{};
+    std::uint64_t sourceDetailRequestCounter_{0};
+    std::uint64_t activeSourceDetailRequestId_{0};
+    std::string activeSourceDetailPath_;
     rastertoolbox::config::Preset currentPreset_;
     bool presetIsValid_{true};
     std::string presetValidationError_;

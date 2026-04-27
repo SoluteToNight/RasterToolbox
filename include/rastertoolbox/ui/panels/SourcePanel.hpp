@@ -13,7 +13,7 @@ class QLabel;
 class QTableWidget;
 class QPushButton;
 class QImage;
-class QTextEdit;
+class QPlainTextEdit;
 
 namespace rastertoolbox::ui::panels {
 
@@ -30,8 +30,11 @@ public:
     void setMetadata(const rastertoolbox::engine::DatasetInfo& info);
     void setSourceMetadata(const std::string& path, const rastertoolbox::engine::DatasetInfo& info);
     void setBatchSummary(const QString& summary);
+    void setMetadataLoading(const QString& message = {});
+    void setPreviewLoading(const QString& message = {});
     void setPreview(const QImage& preview);
     void clearPreview(const QString& message = {});
+    void showPreviewError(const QString& message);
     void showError(const QString& message);
     void showSourceError(const QString& message);
     void setOnImportRequested(std::function<void()> callback);
@@ -45,12 +48,15 @@ private:
     void updateSelectionSummary();
     void setMetadataDetailsExpanded(bool expanded);
     void setDetailText(const rastertoolbox::engine::DatasetInfo& info);
+    void setMetadataMessage(const QString& label, const QString& message);
 
     QTableWidget* sourceTable_{};
-    QTextEdit* metadataView_{};
+    QTableWidget* metadataSummaryTable_{};
+    QPlainTextEdit* metadataProjectionDetails_{};
     QLabel* batchSummaryLabel_{};
     QLabel* selectionSummaryLabel_{};
     QLabel* previewLabel_{};
+    QLabel* previewLoadingLabel_{};
     QLabel* errorLabel_{};
     QPushButton* importButton_{};
     QPushButton* clearButton_{};

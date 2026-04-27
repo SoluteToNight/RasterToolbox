@@ -4,7 +4,9 @@
 #include <QApplication>
 #include <QCheckBox>
 #include <QComboBox>
+#include <QCoreApplication>
 #include <QDoubleSpinBox>
+#include <QElapsedTimer>
 #include <QLabel>
 #include <QLineEdit>
 #include <QPlainTextEdit>
@@ -35,6 +37,20 @@ T* findPanel(QWidget& parent) {
         }
     }
     return nullptr;
+}
+
+template <typename Predicate>
+bool waitUntil(Predicate predicate, const int timeoutMs = 5000) {
+    QElapsedTimer timer;
+    timer.start();
+    while (timer.elapsed() < timeoutMs) {
+        if (predicate()) {
+            return true;
+        }
+        QCoreApplication::processEvents(QEventLoop::AllEvents, 50);
+        QTest::qWait(20);
+    }
+    return predicate();
 }
 
 } // namespace
@@ -129,24 +145,36 @@ int main(int argc, char** argv) {
     auto* sourceDetailPanel = sourcePanel->findChild<QWidget*>("sourceDetailPanel");
     auto* sourceMetadataDetailsButton = sourcePanel->findChild<QPushButton*>("sourceMetadataDetailsButton");
     auto* sourceSelectionSummaryLabel = sourcePanel->findChild<QLabel*>("sourceSelectionSummaryLabel");
+    auto* sourcePreviewLoadingLabel = sourcePanel->findChild<QLabel*>("sourcePreviewLoadingLabel");
     assert(sourceTable != nullptr);
     assert(sourceDetailPanel != nullptr);
     assert(sourceMetadataDetailsButton != nullptr);
     assert(sourceSelectionSummaryLabel != nullptr);
+    assert(sourcePreviewLoadingLabel != nullptr);
     assert(sourceTable->rowCount() == 1);
+    assert(waitUntil([sourcePreviewLoadingLabel, sourceTable]() {
+        return sourcePreviewLoadingLabel->text().contains("加载") ||
+            sourceTable->item(0, 1)->text().contains("GTiff");
+    }, 1000));
+    assert(waitUntil([sourceTable]() {
+        return sourceTable->item(0, 1)->text().contains("GTiff");
+    }));
     assert(sourceTable->item(0, 1)->text().contains("GTiff"));
     assert(sourceTable->item(0, 2)->text() == "1");
-    auto* metadataView = sourcePanel->findChild<QTextEdit*>("metadataView");
-    assert(metadataView != nullptr);
-    assert(sourceMetadataDetailsButton->text() == "隐藏完整元数据");
+    auto* metadataSummaryTable = sourcePanel->findChild<QTableWidget*>("metadataSummaryTable");
+    auto* metadataProjectionDetails = sourcePanel->findChild<QPlainTextEdit*>("metadataProjectionDetails");
+    assert(metadataSummaryTable != nullptr);
+    assert(metadataProjectionDetails != nullptr);
+    assert(metadataSummaryTable->rowCount() >= 8);
+    assert(sourceMetadataDetailsButton->text() == "隐藏坐标系 WKT");
     sourceMetadataDetailsButton->click();
     app.processEvents();
-    assert(metadataView->isHidden());
-    assert(sourceMetadataDetailsButton->text() == "查看完整元数据");
+    assert(metadataProjectionDetails->isHidden());
+    assert(sourceMetadataDetailsButton->text() == "查看坐标系 WKT");
     sourceMetadataDetailsButton->click();
     app.processEvents();
-    assert(!metadataView->isHidden());
-    assert(sourceMetadataDetailsButton->text() == "隐藏完整元数据");
+    assert(!metadataProjectionDetails->isHidden());
+    assert(sourceMetadataDetailsButton->text() == "隐藏坐标系 WKT");
     auto* batchSummaryLabel = sourcePanel->findChild<QLabel*>("batchSummaryLabel");
     assert(batchSummaryLabel != nullptr);
     assert(batchSummaryLabel->text().contains("数量: 1"));
@@ -162,6 +190,9 @@ int main(int argc, char** argv) {
     sourcePanel->addSourcePath("/tmp/rastertoolbox-missing-ui-source.tif");
     app.processEvents();
     assert(sourceTable->rowCount() == 2);
+    assert(waitUntil([sourceTable]() {
+        return sourceTable->item(1, 1)->text().contains("读取失败");
+    }));
     assert(sourceTable->item(1, 1)->text().contains("读取失败"));
     sourceTable->selectRow(0);
     app.processEvents();
@@ -223,6 +254,9 @@ int main(int argc, char** argv) {
     auto* compressionWebpLosslessCheck = presetPanel->findChild<QCheckBox*>("compressionWebpLosslessCheck");
     auto* targetPixelSizeXSpin = presetPanel->findChild<QDoubleSpinBox*>("targetPixelSizeXSpin");
     auto* targetPixelSizeYSpin = presetPanel->findChild<QDoubleSpinBox*>("targetPixelSizeYSpin");
+    auto* targetPixelSizeModeCombo = presetPanel->findChild<QComboBox*>("targetPixelSizeModeCombo");
+    auto* targetPixelSizeLockCheck = presetPanel->findChild<QCheckBox*>("targetPixelSizeLockCheck");
+    auto* targetPixelSizeHelpLabel = presetPanel->findChild<QLabel*>("targetPixelSizeHelpLabel");
     auto* resetPresetButton = presetPanel->findChild<QPushButton*>("resetPresetButton");
     auto* exportLogTextButton = logPanel->findChild<QPushButton*>("exportLogTextButton");
     auto* exportLogJsonButton = logPanel->findChild<QPushButton*>("exportLogJsonButton");
@@ -249,14 +283,16 @@ int main(int argc, char** argv) {
     assert(compressionWebpLosslessCheck != nullptr);
     assert(targetPixelSizeXSpin != nullptr);
     assert(targetPixelSizeYSpin != nullptr);
-    assert(targetPixelSizeXSpin->specialValueText().contains("空间分辨率"));
-    assert(targetPixelSizeYSpin->specialValueText().contains("空间分辨率"));
-    assert(targetPixelSizeXSpin->suffix().contains("坐标单位"));
-    assert(targetPixelSizeYSpin->suffix().contains("坐标单位"));
-    assert(targetPixelSizeXSpin->suffix().trimmed().compare("x", Qt::CaseInsensitive) != 0);
-    assert(targetPixelSizeYSpin->suffix().trimmed().compare("y", Qt::CaseInsensitive) != 0);
-    assert(targetPixelSizeXSpin->toolTip().contains("目标像元大小"));
-    assert(targetPixelSizeYSpin->toolTip().contains("空间分辨率"));
+    assert(targetPixelSizeModeCombo != nullptr);
+    assert(targetPixelSizeLockCheck != nullptr);
+    assert(targetPixelSizeHelpLabel != nullptr);
+    assert(targetPixelSizeModeCombo->findText("沿用源分辨率") >= 0);
+    assert(targetPixelSizeModeCombo->findText("指定像元大小") >= 0);
+    assert(targetPixelSizeModeCombo->currentText() == "沿用源分辨率");
+    assert(!targetPixelSizeXSpin->isEnabled());
+    assert(!targetPixelSizeYSpin->isEnabled());
+    assert(targetPixelSizeLockCheck->isChecked());
+    assert(targetPixelSizeHelpLabel->text().contains("目标坐标系单位"));
     assert(resetPresetButton != nullptr);
     assert(exportLogTextButton != nullptr);
     assert(exportLogJsonButton != nullptr);
@@ -335,13 +371,23 @@ int main(int argc, char** argv) {
     assert(targetEpsgEdit != nullptr);
     targetEpsgEdit->setText("EPSG:4326");
     QMetaObject::invokeMethod(targetEpsgEdit, "editingFinished", Qt::DirectConnection);
-    targetPixelSizeXSpin->setValue(20.0);
-    targetPixelSizeYSpin->setValue(20.0);
+    targetPixelSizeModeCombo->setCurrentText("指定像元大小");
     app.processEvents();
+    assert(targetPixelSizeXSpin->isEnabled());
+    assert(targetPixelSizeYSpin->isEnabled());
+    targetPixelSizeXSpin->setValue(20.0);
+    app.processEvents();
+    assert(targetPixelSizeYSpin->value() == 20.0);
     auto directPreset = presetPanel->currentPreset();
     assert(directPreset.targetEpsg == "EPSG:4326");
     assert(directPreset.targetPixelSizeX == 20.0);
     assert(directPreset.targetPixelSizeY == 20.0);
+
+    targetPixelSizeModeCombo->setCurrentText("沿用源分辨率");
+    app.processEvents();
+    auto inheritedResolutionPreset = presetPanel->currentPreset();
+    assert(inheritedResolutionPreset.targetPixelSizeX == 0.0);
+    assert(inheritedResolutionPreset.targetPixelSizeY == 0.0);
 
     QTimer::singleShot(0, [&app]() {
         auto* dialog = app.activeModalWidget();
