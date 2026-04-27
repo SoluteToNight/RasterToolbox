@@ -470,8 +470,14 @@ int main(int argc, char** argv) {
 
     sourcePanel->addSourcePath("/tmp/rastertoolbox-profile-source.tif");
     app.processEvents();
+    const int queueRowsBeforeSubmit = queueTable->rowCount();
     homeSubmitButton->click();
+    assert(queueTable->rowCount() == queueRowsBeforeSubmit);
+
     app.processEvents();
+    assert(waitUntil([queueTable, queueRowsBeforeSubmit]() {
+        return queueTable->rowCount() > queueRowsBeforeSubmit;
+    }));
 
     assert(queueTable->rowCount() > 0);
     const int rowCountAfterSubmit = queueTable->rowCount();
@@ -509,7 +515,9 @@ int main(int argc, char** argv) {
     const int originalRowCount = queueTable->rowCount();
     queueTable->selectRow(0);
     duplicateTaskButton->click();
-    app.processEvents();
+    assert(waitUntil([queueTable, originalRowCount]() {
+        return queueTable->rowCount() == originalRowCount + 1;
+    }));
     assert(queueTable->rowCount() == originalRowCount + 1);
 
     queueTable->selectRow(0);

@@ -72,12 +72,24 @@ bool TaskQueueManager::hasOutputConflict(const Task& task, std::string& reason) 
         }
     }
 
-    if (!task.presetSnapshot.overwriteExisting && std::filesystem::exists(task.outputPath)) {
+    std::error_code error;
+    const bool outputExists = std::filesystem::exists(task.outputPath, error);
+    if (error) {
+        reason = "检查输出文件失败: " + task.outputPath + " (" + error.message() + ")";
+        return true;
+    }
+    if (!task.presetSnapshot.overwriteExisting && outputExists) {
         reason = "输出文件已存在且未允许覆盖: " + task.outputPath;
         return true;
     }
 
-    if (std::filesystem::exists(temporaryOutputPath)) {
+    error.clear();
+    const bool temporaryExists = std::filesystem::exists(temporaryOutputPath, error);
+    if (error) {
+        reason = "检查临时输出文件失败: " + temporaryOutputPath + " (" + error.message() + ")";
+        return true;
+    }
+    if (temporaryExists) {
         reason = "临时输出文件已存在: " + temporaryOutputPath;
         return true;
     }
@@ -101,6 +113,11 @@ bool TaskQueueManager::enqueue(Task task, std::string& validationError) {
     return true;
 }
 
+bool TaskQueueManager::validateForExecution(const Task& task, std::string& reason) const {
+    std::scoped_lock lock(mutex_);
+    return !hasOutputConflict(task, reason);
+}
+
 std::optional<Task> TaskQueueManager::popNextPending() {
     std::scoped_lock lock(mutex_);
 
@@ -110,17 +127,6 @@ std::optional<Task> TaskQueueManager::popNextPending() {
 
     for (Task& task : tasks_) {
         if (task.status != TaskStatus::Pending) {
-            continue;
-        }
-
-        std::string reason;
-        if (hasOutputConflict(task, reason)) {
-            task.status = TaskStatus::Failed;
-            task.errorClass = rastertoolbox::common::ErrorClass::TaskError;
-            task.errorCode = "OUTPUT_CONFLICT";
-            task.details = reason;
-            task.statusMessage = reason;
-            task.updatedAt = rastertoolbox::common::utcNowIso8601Millis();
             continue;
         }
 

@@ -146,6 +146,7 @@ target_sources(test_task_report_and_log_export PRIVATE
 )
 target_link_libraries(test_task_report_and_log_export PRIVATE
     Qt6::Core
+    Qt6::Concurrent
     Qt6::Widgets
     nlohmann_json::nlohmann_json
 )

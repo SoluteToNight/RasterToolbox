@@ -2,6 +2,7 @@
 #include <cassert>
 #include <chrono>
 #include <filesystem>
+#include <fstream>
 #include <string>
 #include <thread>
 #include <vector>
@@ -174,6 +175,34 @@ int main(int argc, char** argv) {
     assert(failedTaskResult->errorClass == rastertoolbox::common::ErrorClass::TaskError);
     assert(failedTaskResult->errorCode == "OPEN_INPUT_FAILED");
 
+    dispatcher.pauseQueue();
+    const auto lateConflictOutputPath = tempRoot / "late-conflict-output.tif";
+    rastertoolbox::dispatcher::Task lateConflictTask;
+    lateConflictTask.id = "task-late-conflict";
+    lateConflictTask.inputPath = inputPath.string();
+    lateConflictTask.outputPath = lateConflictOutputPath.string();
+    lateConflictTask.presetSnapshot.outputFormat = "GTiff";
+    lateConflictTask.presetSnapshot.compressionMethod = "LZW";
+    lateConflictTask.presetSnapshot.compressionLevel = 6;
+    lateConflictTask.presetSnapshot.buildOverviews = false;
+    lateConflictTask.presetSnapshot.overwriteExisting = false;
+    assert(dispatcher.enqueueTask(lateConflictTask, enqueueError));
+
+    std::ofstream lateConflictFile(lateConflictOutputPath.string());
+    lateConflictFile << "late-conflict";
+    lateConflictFile.close();
+
+    dispatcher.resumeQueue();
+    assert(waitForTerminal(app, dispatcher, lateConflictTask.id, 15000));
+
+    const auto afterLateConflict = dispatcher.snapshot();
+    const auto* lateConflictResult = findTaskById(afterLateConflict, lateConflictTask.id);
+    assert(lateConflictResult != nullptr);
+    assert(lateConflictResult->status == rastertoolbox::dispatcher::TaskStatus::Failed);
+    assert(lateConflictResult->errorClass == rastertoolbox::common::ErrorClass::TaskError);
+    assert(lateConflictResult->errorCode == "OUTPUT_CONFLICT");
+    assert(lateConflictResult->statusMessage.find("输出文件已存在") != std::string::npos);
+
     const auto failedEvent = std::find_if(
         events.begin(),
         events.end(),
@@ -197,6 +226,7 @@ int main(int argc, char** argv) {
 
     std::filesystem::remove(outputPath);
     std::filesystem::remove(inputPath);
+    std::filesystem::remove(lateConflictOutputPath);
     std::filesystem::remove_all(tempRoot);
     return 0;
 }

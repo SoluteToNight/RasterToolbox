@@ -4,6 +4,7 @@
 
 #include <QComboBox>
 #include <QFileDialog>
+#include <QFutureWatcher>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
@@ -11,6 +12,7 @@
 #include <QPushButton>
 #include <QPlainTextEdit>
 #include <QVBoxLayout>
+#include <QtConcurrent>
 
 #include <nlohmann/json.hpp>
 
@@ -140,6 +142,48 @@ QString formatExportLine(const rastertoolbox::dispatcher::ProgressEvent& event) 
     return formatEventLine(event, levelToString(event.level));
 }
 
+bool writeTextExport(
+    const std::filesystem::path& path,
+    const std::vector<rastertoolbox::dispatcher::ProgressEvent>& events,
+    std::string& error
+) {
+    std::ofstream stream(path);
+    if (!stream) {
+        error = "Cannot write log export: " + path.string();
+        return false;
+    }
+
+    QStringList lines;
+    for (const auto& event : events) {
+        lines << formatExportLine(event);
+    }
+
+    stream << lines.join('\n').toStdString() << '\n';
+    error.clear();
+    return true;
+}
+
+bool writeJsonExport(
+    const std::filesystem::path& path,
+    const std::vector<rastertoolbox::dispatcher::ProgressEvent>& events,
+    std::string& error
+) {
+    std::ofstream stream(path);
+    if (!stream) {
+        error = "Cannot write log export: " + path.string();
+        return false;
+    }
+
+    nlohmann::json payload = nlohmann::json::array();
+    for (const auto& event : events) {
+        payload.push_back(eventToJson(event));
+    }
+
+    stream << payload.dump(2) << '\n';
+    error.clear();
+    return true;
+}
+
 } // namespace
 
 LogPanel::LogPanel(QWidget* parent) : QWidget(parent) {
@@ -220,12 +264,35 @@ void LogPanel::wireEvents() {
         if (path.isEmpty()) {
             return;
         }
-        std::string error;
-        if (exportFilteredText(path.toStdString(), error)) {
-            exportStatusLabel_->setText(QString("日志文本已导出到 %1").arg(path));
-        } else {
-            exportStatusLabel_->setText(QString("日志文本导出失败: %1").arg(QString::fromStdString(error)));
-        }
+
+        exportTextButton_->setEnabled(false);
+        exportJsonButton_->setEnabled(false);
+        exportStatusLabel_->setText(QString("正在导出日志文本到 %1").arg(path));
+
+        const auto events = filteredEvents();
+        struct ExportResult {
+            bool success{false};
+            std::string error;
+        };
+
+        auto* watcher = new QFutureWatcher<ExportResult>(this);
+        connect(watcher, &QFutureWatcher<ExportResult>::finished, this, [this, watcher, path]() {
+            const auto result = watcher->result();
+            watcher->deleteLater();
+            exportTextButton_->setEnabled(true);
+            exportJsonButton_->setEnabled(true);
+            if (result.success) {
+                exportStatusLabel_->setText(QString("日志文本已导出到 %1").arg(path));
+            } else {
+                exportStatusLabel_->setText(QString("日志文本导出失败: %1").arg(QString::fromStdString(result.error)));
+            }
+        });
+
+        watcher->setFuture(QtConcurrent::run([pathString = path.toStdString(), events]() {
+            ExportResult result;
+            result.success = writeTextExport(pathString, events, result.error);
+            return result;
+        }));
     });
 
     connect(exportJsonButton_, &QPushButton::clicked, this, [this]() {
@@ -233,12 +300,35 @@ void LogPanel::wireEvents() {
         if (path.isEmpty()) {
             return;
         }
-        std::string error;
-        if (exportFilteredJson(path.toStdString(), error)) {
-            exportStatusLabel_->setText(QString("日志 JSON 已导出到 %1").arg(path));
-        } else {
-            exportStatusLabel_->setText(QString("日志 JSON 导出失败: %1").arg(QString::fromStdString(error)));
-        }
+
+        exportTextButton_->setEnabled(false);
+        exportJsonButton_->setEnabled(false);
+        exportStatusLabel_->setText(QString("正在导出日志 JSON 到 %1").arg(path));
+
+        const auto events = filteredEvents();
+        struct ExportResult {
+            bool success{false};
+            std::string error;
+        };
+
+        auto* watcher = new QFutureWatcher<ExportResult>(this);
+        connect(watcher, &QFutureWatcher<ExportResult>::finished, this, [this, watcher, path]() {
+            const auto result = watcher->result();
+            watcher->deleteLater();
+            exportTextButton_->setEnabled(true);
+            exportJsonButton_->setEnabled(true);
+            if (result.success) {
+                exportStatusLabel_->setText(QString("日志 JSON 已导出到 %1").arg(path));
+            } else {
+                exportStatusLabel_->setText(QString("日志 JSON 导出失败: %1").arg(QString::fromStdString(result.error)));
+            }
+        });
+
+        watcher->setFuture(QtConcurrent::run([pathString = path.toStdString(), events]() {
+            ExportResult result;
+            result.success = writeJsonExport(pathString, events, result.error);
+            return result;
+        }));
     });
 }
 
@@ -282,37 +372,11 @@ std::vector<rastertoolbox::dispatcher::ProgressEvent> LogPanel::eventsForTask(co
 }
 
 bool LogPanel::exportFilteredText(const std::filesystem::path& path, std::string& error) const {
-    std::ofstream stream(path);
-    if (!stream) {
-        error = "Cannot write log export: " + path.string();
-        return false;
-    }
-
-    QStringList lines;
-    for (const auto& event : filteredEvents()) {
-        lines << formatExportLine(event);
-    }
-
-    stream << lines.join('\n').toStdString() << '\n';
-    error.clear();
-    return true;
+    return writeTextExport(path, filteredEvents(), error);
 }
 
 bool LogPanel::exportFilteredJson(const std::filesystem::path& path, std::string& error) const {
-    std::ofstream stream(path);
-    if (!stream) {
-        error = "Cannot write log export: " + path.string();
-        return false;
-    }
-
-    nlohmann::json payload = nlohmann::json::array();
-    for (const auto& event : filteredEvents()) {
-        payload.push_back(eventToJson(event));
-    }
-
-    stream << payload.dump(2) << '\n';
-    error.clear();
-    return true;
+    return writeJsonExport(path, filteredEvents(), error);
 }
 
 } // namespace rastertoolbox::ui::panels

@@ -526,9 +526,31 @@ void MainWindow::handleLoadPresetRequested() {
         return;
     }
 
-    try {
-        const auto loaded = presetRepository_.loadFromFile(path.toStdString());
-        presets_.insert(presets_.end(), loaded.begin(), loaded.end());
+    struct PresetLoadResult {
+        std::vector<rastertoolbox::config::Preset> presets;
+        std::string error;
+    };
+
+    auto* watcher = new QFutureWatcher<PresetLoadResult>(this);
+    connect(watcher, &QFutureWatcher<PresetLoadResult>::finished, this, [this, watcher, path]() {
+        const auto result = watcher->result();
+        watcher->deleteLater();
+
+        if (!result.error.empty()) {
+            appendLog(
+                rastertoolbox::dispatcher::EventSource::Config,
+                rastertoolbox::dispatcher::LogLevel::Error,
+                std::string("加载用户预设失败: ") + result.error,
+                {},
+                -1.0,
+                "preset-load",
+                rastertoolbox::common::ErrorClass::InternalError,
+                "PRESET_LOAD_FAILED"
+            );
+            return;
+        }
+
+        presets_.insert(presets_.end(), result.presets.begin(), result.presets.end());
         presetPanel_->setPresets(presets_);
         if (!presets_.empty()) {
             currentPreset_ = presets_.front();
@@ -543,18 +565,17 @@ void MainWindow::handleLoadPresetRequested() {
             -1.0,
             "preset-load"
         );
-    } catch (const std::exception& error) {
-        appendLog(
-            rastertoolbox::dispatcher::EventSource::Config,
-            rastertoolbox::dispatcher::LogLevel::Error,
-            std::string("加载用户预设失败: ") + error.what(),
-            {},
-            -1.0,
-            "preset-load",
-            rastertoolbox::common::ErrorClass::InternalError,
-            "PRESET_LOAD_FAILED"
-        );
-    }
+    });
+
+    watcher->setFuture(QtConcurrent::run([this, pathString = path.toStdString()]() {
+        PresetLoadResult result;
+        try {
+            result.presets = presetRepository_.loadFromFile(pathString);
+        } catch (const std::exception& error) {
+            result.error = error.what();
+        }
+        return result;
+    }));
 }
 
 void MainWindow::handleSavePresetRequested(const rastertoolbox::config::Preset& preset) {
@@ -579,8 +600,29 @@ void MainWindow::handleSavePresetRequested(const rastertoolbox::config::Preset& 
         return;
     }
 
-    try {
-        presetRepository_.saveToFile(path.toStdString(), {preset});
+    struct PresetSaveResult {
+        std::string error;
+    };
+
+    auto* watcher = new QFutureWatcher<PresetSaveResult>(this);
+    connect(watcher, &QFutureWatcher<PresetSaveResult>::finished, this, [this, watcher, path]() {
+        const auto result = watcher->result();
+        watcher->deleteLater();
+
+        if (!result.error.empty()) {
+            appendLog(
+                rastertoolbox::dispatcher::EventSource::Config,
+                rastertoolbox::dispatcher::LogLevel::Error,
+                std::string("预设保存失败: ") + result.error,
+                {},
+                -1.0,
+                "preset-save",
+                rastertoolbox::common::ErrorClass::InternalError,
+                "PRESET_SAVE_FAILED"
+            );
+            return;
+        }
+
         appendLog(
             rastertoolbox::dispatcher::EventSource::Config,
             rastertoolbox::dispatcher::LogLevel::Info,
@@ -589,18 +631,17 @@ void MainWindow::handleSavePresetRequested(const rastertoolbox::config::Preset& 
             -1.0,
             "preset-save"
         );
-    } catch (const std::exception& error) {
-        appendLog(
-            rastertoolbox::dispatcher::EventSource::Config,
-            rastertoolbox::dispatcher::LogLevel::Error,
-            std::string("预设保存失败: ") + error.what(),
-            {},
-            -1.0,
-            "preset-save",
-            rastertoolbox::common::ErrorClass::InternalError,
-            "PRESET_SAVE_FAILED"
-        );
-    }
+    });
+
+    watcher->setFuture(QtConcurrent::run([this, pathString = path.toStdString(), preset]() {
+        PresetSaveResult result;
+        try {
+            presetRepository_.saveToFile(pathString, {preset});
+        } catch (const std::exception& error) {
+            result.error = error.what();
+        }
+        return result;
+    }));
 }
 
 void MainWindow::handleClearSourcesRequested() {
@@ -704,6 +745,8 @@ void MainWindow::handleAddTaskRequested() {
         return;
     }
 
+    std::vector<rastertoolbox::dispatcher::Task> tasks;
+    tasks.reserve(selectedPaths.size());
     for (const auto& source : selectedPaths) {
         rastertoolbox::dispatcher::Task task;
         task.id = createTaskId();
@@ -712,32 +755,38 @@ void MainWindow::handleAddTaskRequested() {
         task.presetSnapshot = currentPreset_;
         task.createdAt = rastertoolbox::common::utcNowIso8601Millis();
         task.updatedAt = task.createdAt;
+        tasks.push_back(std::move(task));
+    }
 
-        std::string enqueueError;
-        if (!taskDispatcher_.enqueueTask(task, enqueueError)) {
+    homeSubmitButton_->setEnabled(false);
+    taskDispatcher_.enqueueTasksAsync(std::move(tasks), [this](std::vector<rastertoolbox::dispatcher::TaskDispatcherService::EnqueueResult> results) {
+        homeSubmitButton_->setEnabled(true);
+        for (const auto& result : results) {
+            if (!result.success) {
+                appendLog(
+                    rastertoolbox::dispatcher::EventSource::Dispatcher,
+                    rastertoolbox::dispatcher::LogLevel::Error,
+                    "入队失败: " + result.error,
+                    result.task.id,
+                    -1.0,
+                    "enqueue",
+                    rastertoolbox::common::ErrorClass::ValidationError,
+                    "VALIDATION_FAILED",
+                    result.error
+                );
+                continue;
+            }
+
             appendLog(
                 rastertoolbox::dispatcher::EventSource::Dispatcher,
-                rastertoolbox::dispatcher::LogLevel::Error,
-                "入队失败: " + enqueueError,
-                task.id,
-                -1.0,
-                "enqueue",
-                rastertoolbox::common::ErrorClass::ValidationError,
-                "VALIDATION_FAILED",
-                enqueueError
+                rastertoolbox::dispatcher::LogLevel::Info,
+                "任务已入队",
+                result.task.id,
+                0.0,
+                "enqueue"
             );
-            continue;
         }
-
-        appendLog(
-            rastertoolbox::dispatcher::EventSource::Dispatcher,
-            rastertoolbox::dispatcher::LogLevel::Info,
-            "任务已入队",
-            task.id,
-            0.0,
-            "enqueue"
-        );
-    }
+    });
 }
 
 void MainWindow::handlePauseRequested() {
@@ -793,58 +842,60 @@ void MainWindow::handleRemoveRequested(const std::string& taskId) {
 
 void MainWindow::handleRetryRequested(const std::string& taskId) {
     const auto newTaskId = createTaskId();
-    std::string error;
-    if (!taskDispatcher_.retryTask(taskId, newTaskId, error)) {
+    taskDispatcher_.retryTaskAsync(taskId, newTaskId, [this, taskId, newTaskId](const bool success, std::string error) {
+        if (!success) {
+            appendLog(
+                rastertoolbox::dispatcher::EventSource::Dispatcher,
+                rastertoolbox::dispatcher::LogLevel::Warning,
+                "重试任务失败: " + error,
+                taskId,
+                -1.0,
+                "task-retry",
+                rastertoolbox::common::ErrorClass::ValidationError,
+                "TASK_RETRY_FAILED",
+                error
+            );
+            return;
+        }
+
         appendLog(
             rastertoolbox::dispatcher::EventSource::Dispatcher,
-            rastertoolbox::dispatcher::LogLevel::Warning,
-            "重试任务失败: " + error,
-            taskId,
-            -1.0,
-            "task-retry",
-            rastertoolbox::common::ErrorClass::ValidationError,
-            "TASK_RETRY_FAILED",
-            error
+            rastertoolbox::dispatcher::LogLevel::Info,
+            "任务已重试为新任务: " + newTaskId,
+            newTaskId,
+            0.0,
+            "task-retry"
         );
-        return;
-    }
-
-    appendLog(
-        rastertoolbox::dispatcher::EventSource::Dispatcher,
-        rastertoolbox::dispatcher::LogLevel::Info,
-        "任务已重试为新任务: " + newTaskId,
-        newTaskId,
-        0.0,
-        "task-retry"
-    );
+    });
 }
 
 void MainWindow::handleDuplicateRequested(const std::string& taskId) {
     const auto newTaskId = createTaskId();
-    std::string error;
-    if (!taskDispatcher_.duplicateTask(taskId, newTaskId, error)) {
+    taskDispatcher_.duplicateTaskAsync(taskId, newTaskId, [this, taskId, newTaskId](const bool success, std::string error) {
+        if (!success) {
+            appendLog(
+                rastertoolbox::dispatcher::EventSource::Dispatcher,
+                rastertoolbox::dispatcher::LogLevel::Warning,
+                "复制任务失败: " + error,
+                taskId,
+                -1.0,
+                "task-duplicate",
+                rastertoolbox::common::ErrorClass::ValidationError,
+                "TASK_DUPLICATE_FAILED",
+                error
+            );
+            return;
+        }
+
         appendLog(
             rastertoolbox::dispatcher::EventSource::Dispatcher,
-            rastertoolbox::dispatcher::LogLevel::Warning,
-            "复制任务失败: " + error,
-            taskId,
-            -1.0,
-            "task-duplicate",
-            rastertoolbox::common::ErrorClass::ValidationError,
-            "TASK_DUPLICATE_FAILED",
-            error
+            rastertoolbox::dispatcher::LogLevel::Info,
+            "任务已复制为新任务: " + newTaskId,
+            newTaskId,
+            0.0,
+            "task-duplicate"
         );
-        return;
-    }
-
-    appendLog(
-        rastertoolbox::dispatcher::EventSource::Dispatcher,
-        rastertoolbox::dispatcher::LogLevel::Info,
-        "任务已复制为新任务: " + newTaskId,
-        newTaskId,
-        0.0,
-        "task-duplicate"
-    );
+    });
 }
 
 void MainWindow::handleClearFinishedRequested() {
@@ -918,34 +969,53 @@ void MainWindow::handleExportTaskReportRequested(const std::string& taskId) {
         return;
     }
 
-    std::string error;
     const auto events = logPanel_->eventsForTask(taskId);
-    if (!rastertoolbox::dispatcher::writeTaskReport(path.toStdString(), *task, events, error)) {
+    const auto taskCopy = *task;
+
+    struct TaskReportExportResult {
+        std::string error;
+    };
+
+    auto* watcher = new QFutureWatcher<TaskReportExportResult>(this);
+    connect(watcher, &QFutureWatcher<TaskReportExportResult>::finished, this, [this, watcher, taskId, path]() {
+        const auto result = watcher->result();
+        watcher->deleteLater();
+
+        if (!result.error.empty()) {
+            appendLog(
+                rastertoolbox::dispatcher::EventSource::Ui,
+                rastertoolbox::dispatcher::LogLevel::Warning,
+                "导出任务报告失败: " + result.error,
+                taskId,
+                -1.0,
+                "export-task-report",
+                rastertoolbox::common::ErrorClass::InternalError,
+                "TASK_REPORT_EXPORT_FAILED",
+                result.error
+            );
+            return;
+        }
+
         appendLog(
             rastertoolbox::dispatcher::EventSource::Ui,
-            rastertoolbox::dispatcher::LogLevel::Warning,
-            "导出任务报告失败: " + error,
+            rastertoolbox::dispatcher::LogLevel::Info,
+            "任务报告已导出",
             taskId,
             -1.0,
             "export-task-report",
-            rastertoolbox::common::ErrorClass::InternalError,
-            "TASK_REPORT_EXPORT_FAILED",
-            error
+            rastertoolbox::common::ErrorClass::None,
+            {},
+            path.toStdString()
         );
-        return;
-    }
+    });
 
-    appendLog(
-        rastertoolbox::dispatcher::EventSource::Ui,
-        rastertoolbox::dispatcher::LogLevel::Info,
-        "任务报告已导出",
-        taskId,
-        -1.0,
-        "export-task-report",
-        rastertoolbox::common::ErrorClass::None,
-        {},
-        path.toStdString()
-    );
+    watcher->setFuture(QtConcurrent::run([pathString = path.toStdString(), taskCopy, events]() {
+        TaskReportExportResult result;
+        if (!rastertoolbox::dispatcher::writeTaskReport(pathString, taskCopy, events, result.error)) {
+            return result;
+        }
+        return result;
+    }));
 }
 
 void MainWindow::handleCancelRequested(const std::string& taskId) {

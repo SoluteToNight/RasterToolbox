@@ -21,18 +21,30 @@ namespace rastertoolbox::dispatcher {
 
 class TaskDispatcherService final : public QObject {
 public:
+    struct EnqueueResult {
+        Task task;
+        bool success{false};
+        std::string error;
+    };
+
+    using EnqueueTasksCallback = std::function<void(std::vector<EnqueueResult>)>;
+    using TaskMutationCallback = std::function<void(bool success, std::string error)>;
+
     explicit TaskDispatcherService(rastertoolbox::engine::RasterExecutionService& executionService, QObject* parent = nullptr);
     ~TaskDispatcherService() override = default;
 
     void setMaxConcurrentTasks(int value);
 
     bool enqueueTask(Task task, std::string& validationError);
+    void enqueueTasksAsync(std::vector<Task> tasks, EnqueueTasksCallback callback);
     void pauseQueue();
     void resumeQueue();
     bool removeTask(const std::string& taskId, std::string& error);
     std::size_t clearFinished(bool includeFailed = true);
     bool retryTask(const std::string& taskId, const std::string& newTaskId, std::string& error);
+    void retryTaskAsync(const std::string& taskId, const std::string& newTaskId, TaskMutationCallback callback);
     bool duplicateTask(const std::string& taskId, const std::string& newTaskId, std::string& error);
+    void duplicateTaskAsync(const std::string& taskId, const std::string& newTaskId, TaskMutationCallback callback);
     bool cancelTask(const std::string& taskId);
 
     [[nodiscard]] std::vector<Task> snapshot() const;

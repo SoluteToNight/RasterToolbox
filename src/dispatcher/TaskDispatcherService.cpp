@@ -1,6 +1,7 @@
 #include "rastertoolbox/dispatcher/TaskDispatcherService.hpp"
 
 #include <algorithm>
+#include <utility>
 
 #include <QFutureWatcher>
 #include <QMetaObject>
@@ -33,6 +34,33 @@ bool TaskDispatcherService::enqueueTask(Task task, std::string& validationError)
     return enqueued;
 }
 
+void TaskDispatcherService::enqueueTasksAsync(std::vector<Task> tasks, EnqueueTasksCallback callback) {
+    auto* watcher = new QFutureWatcher<std::vector<EnqueueResult>>(this);
+    connect(watcher, &QFutureWatcher<std::vector<EnqueueResult>>::finished, this, [this, watcher, callback = std::move(callback)]() mutable {
+        auto results = watcher->result();
+        watcher->deleteLater();
+        emitSnapshot();
+        if (callback) {
+            callback(std::move(results));
+        }
+    });
+
+    watcher->setFuture(QtConcurrent::run([this, tasks = std::move(tasks)]() mutable {
+        std::vector<EnqueueResult> results;
+        results.reserve(tasks.size());
+        for (auto& task : tasks) {
+            std::string error;
+            const bool success = queue_.enqueue(task, error);
+            results.push_back(EnqueueResult{
+                .task = std::move(task),
+                .success = success,
+                .error = std::move(error),
+            });
+        }
+        return results;
+    }));
+}
+
 void TaskDispatcherService::pauseQueue() {
     queue_.pauseQueue();
     emitSnapshot();
@@ -61,10 +89,54 @@ bool TaskDispatcherService::retryTask(const std::string& taskId, const std::stri
     return retried;
 }
 
+void TaskDispatcherService::retryTaskAsync(
+    const std::string& taskId,
+    const std::string& newTaskId,
+    TaskMutationCallback callback
+) {
+    auto* watcher = new QFutureWatcher<std::pair<bool, std::string>>(this);
+    connect(watcher, &QFutureWatcher<std::pair<bool, std::string>>::finished, this, [this, watcher, callback = std::move(callback)]() mutable {
+        const auto [success, error] = watcher->result();
+        watcher->deleteLater();
+        emitSnapshot();
+        if (callback) {
+            callback(success, error);
+        }
+    });
+
+    watcher->setFuture(QtConcurrent::run([this, taskId, newTaskId]() {
+        std::string error;
+        const bool success = queue_.retryTask(taskId, newTaskId, error);
+        return std::make_pair(success, error);
+    }));
+}
+
 bool TaskDispatcherService::duplicateTask(const std::string& taskId, const std::string& newTaskId, std::string& error) {
     const bool duplicated = queue_.duplicateTask(taskId, newTaskId, error);
     emitSnapshot();
     return duplicated;
+}
+
+void TaskDispatcherService::duplicateTaskAsync(
+    const std::string& taskId,
+    const std::string& newTaskId,
+    TaskMutationCallback callback
+) {
+    auto* watcher = new QFutureWatcher<std::pair<bool, std::string>>(this);
+    connect(watcher, &QFutureWatcher<std::pair<bool, std::string>>::finished, this, [this, watcher, callback = std::move(callback)]() mutable {
+        const auto [success, error] = watcher->result();
+        watcher->deleteLater();
+        emitSnapshot();
+        if (callback) {
+            callback(success, error);
+        }
+    });
+
+    watcher->setFuture(QtConcurrent::run([this, taskId, newTaskId]() {
+        std::string error;
+        const bool success = queue_.duplicateTask(taskId, newTaskId, error);
+        return std::make_pair(success, error);
+    }));
 }
 
 bool TaskDispatcherService::cancelTask(const std::string& taskId) {
@@ -154,6 +226,22 @@ void TaskDispatcherService::dispatchTask(const Task& task) {
     });
 
     auto future = QtConcurrent::run([this, request, context]() {
+        Task queuedTask;
+        queuedTask.id = request.taskId;
+        queuedTask.outputPath = request.outputPath;
+        queuedTask.presetSnapshot = request.preset;
+
+        std::string validationError;
+        if (!queue_.validateForExecution(queuedTask, validationError)) {
+            rastertoolbox::engine::RasterJobResult result;
+            result.success = false;
+            result.errorClass = rastertoolbox::common::ErrorClass::TaskError;
+            result.errorCode = "OUTPUT_CONFLICT";
+            result.message = validationError;
+            result.details = validationError;
+            return result;
+        }
+
         auto callback = [this](const ProgressEvent& event) {
             QMetaObject::invokeMethod(this, [this, event]() {
                 if (!event.taskId.empty() && event.progress >= 0.0) {

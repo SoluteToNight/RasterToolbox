@@ -45,6 +45,8 @@ private:
     void wireEvents();
     [[nodiscard]] int rowForPath(const QString& path) const;
     [[nodiscard]] QString pathForRow(int row) const;
+    void requestFileSize(const QString& path);
+    void setSourceFileSize(const QString& path, const QString& sizeText);
     void updateSelectionSummary();
     void setMetadataDetailsExpanded(bool expanded);
     void setDetailText(const rastertoolbox::engine::DatasetInfo& info);

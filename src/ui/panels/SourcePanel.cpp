@@ -5,6 +5,7 @@
 
 #include <QAbstractItemView>
 #include <QFrame>
+#include <QFutureWatcher>
 #include <QHeaderView>
 #include <QHBoxLayout>
 #include <QItemSelectionModel>
@@ -15,6 +16,7 @@
 #include <QTableWidget>
 #include <QTableWidgetItem>
 #include <QVBoxLayout>
+#include <QtConcurrent>
 
 namespace rastertoolbox::ui::panels {
 
@@ -24,6 +26,11 @@ constexpr int PathColumn = 0;
 constexpr int DriverColumn = 1;
 constexpr int BandsColumn = 2;
 constexpr int SizeColumn = 3;
+
+struct FileSizeResult {
+    QString path;
+    QString sizeText;
+};
 
 QString fileNameForPath(const QString& path) {
     const auto fileName = QString::fromStdString(std::filesystem::path(path.toStdString()).filename().string());
@@ -230,10 +237,11 @@ void SourcePanel::addSourcePath(const QString& path) {
     sourceTable_->setItem(row, PathColumn, pathItem);
     sourceTable_->setItem(row, DriverColumn, createItem("未读取"));
     sourceTable_->setItem(row, BandsColumn, createItem("-"));
-    sourceTable_->setItem(row, SizeColumn, createItem(fileSizeForPath(path)));
+    sourceTable_->setItem(row, SizeColumn, createItem("读取中"));
 
     sourceTable_->selectRow(row);
     sourceTable_->setCurrentCell(row, PathColumn);
+    requestFileSize(path);
     updateSelectionSummary();
 }
 
@@ -297,7 +305,6 @@ void SourcePanel::setSourceMetadata(
     sourceTable_->item(row, BandsColumn)->setText(QString::number(info.bandCount));
     sourceTable_->item(row, DriverColumn)->setToolTip("元数据读取成功");
     sourceTable_->item(row, BandsColumn)->setToolTip(QString("Bands: %1").arg(info.bandCount));
-    sourceTable_->item(row, SizeColumn)->setText(fileSizeForPath(QString::fromStdString(path)));
 }
 
 void SourcePanel::setBatchSummary(const QString& summary) {
@@ -384,6 +391,35 @@ QString SourcePanel::pathForRow(const int row) const {
     }
     const auto* item = sourceTable_->item(row, PathColumn);
     return item == nullptr ? QString{} : item->data(Qt::UserRole).toString();
+}
+
+void SourcePanel::requestFileSize(const QString& path) {
+    if (path.isEmpty()) {
+        return;
+    }
+
+    auto* watcher = new QFutureWatcher<FileSizeResult>(this);
+    connect(watcher, &QFutureWatcher<FileSizeResult>::finished, this, [this, watcher]() {
+        const auto result = watcher->result();
+        watcher->deleteLater();
+        setSourceFileSize(result.path, result.sizeText);
+    });
+
+    watcher->setFuture(QtConcurrent::run([path]() {
+        return FileSizeResult{
+            .path = path,
+            .sizeText = fileSizeForPath(path),
+        };
+    }));
+}
+
+void SourcePanel::setSourceFileSize(const QString& path, const QString& sizeText) {
+    const int row = rowForPath(path);
+    if (row < 0 || sourceTable_->item(row, SizeColumn) == nullptr) {
+        return;
+    }
+
+    sourceTable_->item(row, SizeColumn)->setText(sizeText);
 }
 
 void SourcePanel::updateSelectionSummary() {

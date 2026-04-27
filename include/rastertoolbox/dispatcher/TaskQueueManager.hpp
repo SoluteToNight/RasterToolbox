@@ -14,6 +14,7 @@ namespace rastertoolbox::dispatcher {
 class TaskQueueManager {
 public:
     bool enqueue(Task task, std::string& validationError);
+    [[nodiscard]] bool validateForExecution(const Task& task, std::string& reason) const;
 
     [[nodiscard]] std::optional<Task> popNextPending();
 
