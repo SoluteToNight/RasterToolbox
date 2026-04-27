@@ -18,6 +18,8 @@
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QPushButton>
+#include <QScrollArea>
+#include <QScreen>
 #include <QSplitter>
 #include <QTabWidget>
 #include <QUrl>
@@ -54,7 +56,18 @@ MainWindow::MainWindow()
     : taskDispatcher_(executionService_, this) {
     setObjectName("mainWindow");
     setWindowTitle("RasterToolbox");
-    resize(1500, 900);
+    if (qApp != nullptr && qApp->primaryScreen() != nullptr) {
+        const QRect available = qApp->primaryScreen()->availableGeometry();
+        const int targetWidth = available.width() < 960
+            ? available.width()
+            : std::min(1500, static_cast<int>(available.width() * 0.92));
+        const int targetHeight = available.height() < 680
+            ? available.height()
+            : std::min(900, static_cast<int>(available.height() * 0.88));
+        resize(targetWidth, targetHeight);
+    } else {
+        resize(1500, 900);
+    }
 
     auto* root = new QWidget(this);
     root->setObjectName("mainRoot");
@@ -72,7 +85,18 @@ MainWindow::MainWindow()
     homeLayout->setContentsMargins(0, 0, 0, 0);
     homeLayout->setSpacing(12);
 
-    auto* splitter = new QSplitter(homeTabPage);
+    auto* homeContentScrollArea = new QScrollArea(homeTabPage);
+    homeContentScrollArea->setObjectName("homeContentScrollArea");
+    homeContentScrollArea->setWidgetResizable(true);
+    homeContentScrollArea->setFrameShape(QFrame::NoFrame);
+    homeContentScrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    auto* homeContentWidget = new QWidget(homeContentScrollArea);
+    homeContentWidget->setObjectName("homeContentWidget");
+    auto* homeContentLayout = new QVBoxLayout(homeContentWidget);
+    homeContentLayout->setContentsMargins(0, 0, 0, 0);
+    homeContentLayout->setSpacing(0);
+
+    auto* splitter = new QSplitter(homeContentWidget);
     splitter->setObjectName("mainSplitter");
     splitter->setHandleWidth(10);
     splitter->setChildrenCollapsible(false);
@@ -84,7 +108,10 @@ MainWindow::MainWindow()
     splitter->setStretchFactor(0, 5);
     splitter->setStretchFactor(1, 6);
     splitter->setSizes({520, 620});
-    homeLayout->addWidget(splitter, 1);
+    homeContentLayout->addWidget(splitter);
+    homeContentLayout->addStretch(1);
+    homeContentScrollArea->setWidget(homeContentWidget);
+    homeLayout->addWidget(homeContentScrollArea, 1);
 
     auto* homeActionsBar = new QFrame(homeTabPage);
     homeActionsBar->setObjectName("homeActionsBar");

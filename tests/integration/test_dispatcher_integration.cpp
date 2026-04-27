@@ -67,11 +67,13 @@ int main(int argc, char** argv) {
 
     std::vector<rastertoolbox::dispatcher::ProgressEvent> events;
     std::vector<rastertoolbox::dispatcher::Task> latestSnapshot;
+    std::size_t snapshotCount = 0;
     dispatcher.setEventSink([&events](const rastertoolbox::dispatcher::ProgressEvent& event) {
         events.push_back(event);
     });
-    dispatcher.setSnapshotSink([&latestSnapshot](const std::vector<rastertoolbox::dispatcher::Task>& tasks) {
+    dispatcher.setSnapshotSink([&latestSnapshot, &snapshotCount](const std::vector<rastertoolbox::dispatcher::Task>& tasks) {
         latestSnapshot = tasks;
+        ++snapshotCount;
     });
 
     const auto tempRoot = std::filesystem::temp_directory_path() / "rastertoolbox-dispatcher-test";
@@ -119,6 +121,13 @@ int main(int argc, char** argv) {
         }
     );
     assert(finishEvent != events.end());
+
+    const std::size_t snapshotCountAfterSuccess = snapshotCount;
+    for (int i = 0; i < 20; ++i) {
+        app.processEvents(QEventLoop::AllEvents, 50);
+        std::this_thread::sleep_for(std::chrono::milliseconds(25));
+    }
+    assert(snapshotCount == snapshotCountAfterSuccess);
 
     dispatcher.pauseQueue();
     rastertoolbox::dispatcher::Task canceledTask;

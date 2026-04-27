@@ -44,6 +44,16 @@ int main() {
     preset.targetPixelSizeY = 10.0;
     assert(rastertoolbox::config::JsonSchemas::validatePreset(preset, error));
 
+    preset.targetPixelSizeUnit = "meter";
+    assert(rastertoolbox::config::JsonSchemas::validatePreset(preset, error));
+
+    preset.targetPixelSizeUnit = "arc-second";
+    assert(rastertoolbox::config::JsonSchemas::validatePreset(preset, error));
+
+    preset.targetPixelSizeUnit = "unsupported-unit";
+    assert(!rastertoolbox::config::JsonSchemas::validatePreset(preset, error));
+
+    preset.targetPixelSizeUnit = std::string(rastertoolbox::config::kTargetPixelSizeUnitTargetCrs);
     preset.targetPixelSizeY = 0.0;
     assert(!rastertoolbox::config::JsonSchemas::validatePreset(preset, error));
 

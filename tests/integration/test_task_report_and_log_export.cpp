@@ -93,6 +93,7 @@ int main(int argc, char** argv) {
     task.updatedAt = task.finishedAt;
     task.presetSnapshot.id = "gtiff-cog-like";
     task.presetSnapshot.outputFormat = "COG-like GeoTIFF";
+    task.presetSnapshot.targetPixelSizeUnit = std::string(rastertoolbox::config::kTargetPixelSizeUnitMeters);
 
     assert(rastertoolbox::dispatcher::writeTaskReport(reportPath, task, logPanel.eventsForTask("task-1"), error));
 
@@ -105,6 +106,7 @@ int main(int argc, char** argv) {
     assert(reportJson.at("status") == "Failed");
     assert(reportJson.at("errorCode") == "WARP_FAILED");
     assert(reportJson.at("presetSnapshot").at("id") == "gtiff-cog-like");
+    assert(reportJson.at("presetSnapshot").at("targetPixelSizeUnit") == "meter");
     assert(reportJson.at("progressSummary").at("eventCount") == 2);
     assert(reportJson.at("events").is_array());
 

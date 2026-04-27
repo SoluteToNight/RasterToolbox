@@ -30,7 +30,10 @@ void TaskDispatcherService::setMaxConcurrentTasks(const int value) {
 
 bool TaskDispatcherService::enqueueTask(Task task, std::string& validationError) {
     const bool enqueued = queue_.enqueue(std::move(task), validationError);
-    emitSnapshot();
+    if (enqueued) {
+        markStateChanged();
+    }
+    emitSnapshotIfChanged();
     return enqueued;
 }
 
@@ -39,7 +42,13 @@ void TaskDispatcherService::enqueueTasksAsync(std::vector<Task> tasks, EnqueueTa
     connect(watcher, &QFutureWatcher<std::vector<EnqueueResult>>::finished, this, [this, watcher, callback = std::move(callback)]() mutable {
         auto results = watcher->result();
         watcher->deleteLater();
-        emitSnapshot();
+        const bool anySuccess = std::any_of(results.begin(), results.end(), [](const EnqueueResult& result) {
+            return result.success;
+        });
+        if (anySuccess) {
+            markStateChanged();
+        }
+        emitSnapshotIfChanged();
         if (callback) {
             callback(std::move(results));
         }
@@ -62,30 +71,47 @@ void TaskDispatcherService::enqueueTasksAsync(std::vector<Task> tasks, EnqueueTa
 }
 
 void TaskDispatcherService::pauseQueue() {
+    if (queue_.isPaused()) {
+        return;
+    }
     queue_.pauseQueue();
-    emitSnapshot();
+    markStateChanged();
+    emitSnapshotIfChanged();
 }
 
 void TaskDispatcherService::resumeQueue() {
+    if (!queue_.isPaused()) {
+        return;
+    }
     queue_.resumeQueue();
-    emitSnapshot();
+    markStateChanged();
+    emitSnapshotIfChanged();
 }
 
 bool TaskDispatcherService::removeTask(const std::string& taskId, std::string& error) {
     const bool removed = queue_.removeTask(taskId, error);
-    emitSnapshot();
+    if (removed) {
+        markStateChanged();
+    }
+    emitSnapshotIfChanged();
     return removed;
 }
 
 std::size_t TaskDispatcherService::clearFinished(const bool includeFailed) {
     const auto removedCount = queue_.clearFinished(includeFailed);
-    emitSnapshot();
+    if (removedCount > 0) {
+        markStateChanged();
+    }
+    emitSnapshotIfChanged();
     return removedCount;
 }
 
 bool TaskDispatcherService::retryTask(const std::string& taskId, const std::string& newTaskId, std::string& error) {
     const bool retried = queue_.retryTask(taskId, newTaskId, error);
-    emitSnapshot();
+    if (retried) {
+        markStateChanged();
+    }
+    emitSnapshotIfChanged();
     return retried;
 }
 
@@ -98,7 +124,10 @@ void TaskDispatcherService::retryTaskAsync(
     connect(watcher, &QFutureWatcher<std::pair<bool, std::string>>::finished, this, [this, watcher, callback = std::move(callback)]() mutable {
         const auto [success, error] = watcher->result();
         watcher->deleteLater();
-        emitSnapshot();
+        if (success) {
+            markStateChanged();
+        }
+        emitSnapshotIfChanged();
         if (callback) {
             callback(success, error);
         }
@@ -113,7 +142,10 @@ void TaskDispatcherService::retryTaskAsync(
 
 bool TaskDispatcherService::duplicateTask(const std::string& taskId, const std::string& newTaskId, std::string& error) {
     const bool duplicated = queue_.duplicateTask(taskId, newTaskId, error);
-    emitSnapshot();
+    if (duplicated) {
+        markStateChanged();
+    }
+    emitSnapshotIfChanged();
     return duplicated;
 }
 
@@ -126,7 +158,10 @@ void TaskDispatcherService::duplicateTaskAsync(
     connect(watcher, &QFutureWatcher<std::pair<bool, std::string>>::finished, this, [this, watcher, callback = std::move(callback)]() mutable {
         const auto [success, error] = watcher->result();
         watcher->deleteLater();
-        emitSnapshot();
+        if (success) {
+            markStateChanged();
+        }
+        emitSnapshotIfChanged();
         if (callback) {
             callback(success, error);
         }
@@ -143,6 +178,7 @@ bool TaskDispatcherService::cancelTask(const std::string& taskId) {
     if (!queue_.requestCancel(taskId)) {
         return false;
     }
+    markStateChanged();
 
     bool runningTaskCanceled = false;
     if (const auto context = workerContexts_.find(taskId); context != workerContexts_.end()) {
@@ -163,7 +199,7 @@ bool TaskDispatcherService::cancelTask(const std::string& taskId) {
         .details = {},
     });
 
-    emitSnapshot();
+    emitSnapshotIfChanged();
     return true;
 }
 
@@ -180,16 +216,21 @@ void TaskDispatcherService::setSnapshotSink(std::function<void(const std::vector
 }
 
 void TaskDispatcherService::scheduleDispatch() {
+    bool dispatchedAny = false;
     while (runningWatchers_.size() < static_cast<std::size_t>(maxConcurrentTasks_)) {
         auto task = queue_.popNextPending();
         if (!task.has_value()) {
             break;
         }
 
+        dispatchedAny = true;
         dispatchTask(*task);
     }
 
-    emitSnapshot();
+    if (dispatchedAny) {
+        markStateChanged();
+    }
+    emitSnapshotIfChanged();
 }
 
 void TaskDispatcherService::dispatchTask(const Task& task) {
@@ -244,11 +285,12 @@ void TaskDispatcherService::dispatchTask(const Task& task) {
 
         auto callback = [this](const ProgressEvent& event) {
             QMetaObject::invokeMethod(this, [this, event]() {
-                if (!event.taskId.empty() && event.progress >= 0.0) {
-                    queue_.updateProgress(event.taskId, event.progress, event.message);
+                if (!event.taskId.empty() && event.progress >= 0.0 &&
+                    queue_.updateProgress(event.taskId, event.progress, event.message)) {
+                    markStateChanged();
                 }
                 emitEvent(event);
-                emitSnapshot();
+                emitSnapshotIfChanged();
             }, Qt::QueuedConnection);
         };
 
@@ -263,7 +305,9 @@ void TaskDispatcherService::handleTaskFinished(
     QFutureWatcher<rastertoolbox::engine::RasterJobResult>* watcher
 ) {
     const auto result = watcher->result();
-    queue_.markCompleted(taskId, result);
+    if (queue_.markCompleted(taskId, result)) {
+        markStateChanged();
+    }
 
     ProgressEvent event;
     event.timestamp = rastertoolbox::common::utcNowIso8601Millis();
@@ -294,6 +338,19 @@ void TaskDispatcherService::handleTaskFinished(
     workerContexts_.erase(taskId);
     watcher->deleteLater();
 
+    emitSnapshotIfChanged();
+}
+
+void TaskDispatcherService::markStateChanged() {
+    ++stateRevision_;
+}
+
+void TaskDispatcherService::emitSnapshotIfChanged() {
+    if (stateRevision_ == emittedRevision_) {
+        return;
+    }
+
+    emittedRevision_ = stateRevision_;
     emitSnapshot();
 }
 

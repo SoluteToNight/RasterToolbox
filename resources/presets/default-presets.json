@@ -1,6 +1,6 @@
 [
   {
-    "schemaVersion": 3,
+    "schemaVersion": 4,
     "id": "gtiff-default",
     "name": "Standard GeoTIFF",
     "outputFormat": "Standard GeoTIFF",
@@ -23,10 +23,11 @@
     "targetEpsg": "",
     "targetPixelSizeX": 0,
     "targetPixelSizeY": 0,
+    "targetPixelSizeUnit": "target-crs-unit",
     "resampling": "nearest"
   },
   {
-    "schemaVersion": 3,
+    "schemaVersion": 4,
     "id": "gtiff-lzw-tiled",
     "name": "Compressed GeoTIFF",
     "outputFormat": "Compressed GeoTIFF",
@@ -53,10 +54,11 @@
     "targetEpsg": "",
     "targetPixelSizeX": 0,
     "targetPixelSizeY": 0,
+    "targetPixelSizeUnit": "target-crs-unit",
     "resampling": "nearest"
   },
   {
-    "schemaVersion": 3,
+    "schemaVersion": 4,
     "id": "gtiff-cog-like",
     "name": "COG-like GeoTIFF",
     "outputFormat": "COG-like GeoTIFF",
@@ -89,10 +91,11 @@
     "targetEpsg": "",
     "targetPixelSizeX": 0,
     "targetPixelSizeY": 0,
+    "targetPixelSizeUnit": "target-crs-unit",
     "resampling": "nearest"
   },
   {
-    "schemaVersion": 3,
+    "schemaVersion": 4,
     "id": "png-image",
     "name": "PNG Image",
     "outputFormat": "PNG Image",
@@ -115,10 +118,11 @@
     "targetEpsg": "",
     "targetPixelSizeX": 0,
     "targetPixelSizeY": 0,
+    "targetPixelSizeUnit": "target-crs-unit",
     "resampling": "nearest"
   },
   {
-    "schemaVersion": 3,
+    "schemaVersion": 4,
     "id": "jpeg-image",
     "name": "JPEG Image",
     "outputFormat": "JPEG Image",
@@ -141,10 +145,11 @@
     "targetEpsg": "",
     "targetPixelSizeX": 0,
     "targetPixelSizeY": 0,
+    "targetPixelSizeUnit": "target-crs-unit",
     "resampling": "nearest"
   },
   {
-    "schemaVersion": 3,
+    "schemaVersion": 4,
     "id": "webp-image",
     "name": "WebP Image",
     "outputFormat": "WebP Image",
@@ -167,10 +172,11 @@
     "targetEpsg": "",
     "targetPixelSizeX": 0,
     "targetPixelSizeY": 0,
+    "targetPixelSizeUnit": "target-crs-unit",
     "resampling": "nearest"
   },
   {
-    "schemaVersion": 3,
+    "schemaVersion": 4,
     "id": "envi-raster",
     "name": "ENVI Raster",
     "outputFormat": "ENVI Raster",
@@ -189,10 +195,11 @@
     "targetEpsg": "",
     "targetPixelSizeX": 0,
     "targetPixelSizeY": 0,
+    "targetPixelSizeUnit": "target-crs-unit",
     "resampling": "nearest"
   },
   {
-    "schemaVersion": 3,
+    "schemaVersion": 4,
     "id": "gpkg-raster",
     "name": "GeoPackage Raster",
     "outputFormat": "GeoPackage Raster",
@@ -211,6 +218,7 @@
     "targetEpsg": "",
     "targetPixelSizeX": 0,
     "targetPixelSizeY": 0,
+    "targetPixelSizeUnit": "target-crs-unit",
     "resampling": "nearest"
   }
 ]

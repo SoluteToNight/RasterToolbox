@@ -1,10 +1,15 @@
 #include "rastertoolbox/engine/RasterExecutionService.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <filesystem>
+#include <memory>
 #include <system_error>
 #include <utility>
 #include <vector>
+
+#include <gdal_priv.h>
+#include <ogr_spatialref.h>
 
 #include "rastertoolbox/common/ErrorClass.hpp"
 #include "rastertoolbox/common/Timestamp.hpp"
@@ -12,6 +17,390 @@
 namespace rastertoolbox::engine {
 
 namespace {
+
+constexpr double Pi = 3.14159265358979323846;
+constexpr double DegreesToRadians = Pi / 180.0;
+constexpr double RadiansToDegrees = 180.0 / Pi;
+constexpr double FootToMeters = 0.3048;
+constexpr double MinMetersPerDegree = 1e-9;
+
+struct DatasetSpatialContext {
+    bool hasGeoTransform{false};
+    bool hasSourceSrs{false};
+    double centerX{0.0};
+    double centerY{0.0};
+    std::string sourceProjectionWkt;
+};
+
+bool hasTargetPixelSize(const rastertoolbox::config::Preset& preset) {
+    return preset.targetPixelSizeX > 0.0 && preset.targetPixelSizeY > 0.0;
+}
+
+bool isTargetCrsUnit(const std::string& value) {
+    return value == rastertoolbox::config::kTargetPixelSizeUnitTargetCrs;
+}
+
+bool isLinearUnit(const std::string& value) {
+    return value == rastertoolbox::config::kTargetPixelSizeUnitMeters ||
+        value == rastertoolbox::config::kTargetPixelSizeUnitKilometers ||
+        value == rastertoolbox::config::kTargetPixelSizeUnitFeet;
+}
+
+bool isAngularUnit(const std::string& value) {
+    return value == rastertoolbox::config::kTargetPixelSizeUnitDegrees ||
+        value == rastertoolbox::config::kTargetPixelSizeUnitArcMinutes ||
+        value == rastertoolbox::config::kTargetPixelSizeUnitArcSeconds;
+}
+
+double metersPerUserLinearUnit(const std::string& value) {
+    if (value == rastertoolbox::config::kTargetPixelSizeUnitKilometers) {
+        return 1000.0;
+    }
+    if (value == rastertoolbox::config::kTargetPixelSizeUnitFeet) {
+        return FootToMeters;
+    }
+    return 1.0;
+}
+
+double radiansPerUserAngularUnit(const std::string& value) {
+    if (value == rastertoolbox::config::kTargetPixelSizeUnitArcMinutes) {
+        return DegreesToRadians / 60.0;
+    }
+    if (value == rastertoolbox::config::kTargetPixelSizeUnitArcSeconds) {
+        return DegreesToRadians / 3600.0;
+    }
+    return DegreesToRadians;
+}
+
+double metersPerDegreeLatitude(const double latitudeRadians) {
+    return 111132.92 - (559.82 * std::cos(2.0 * latitudeRadians)) + (1.175 * std::cos(4.0 * latitudeRadians)) -
+        (0.0023 * std::cos(6.0 * latitudeRadians));
+}
+
+double metersPerDegreeLongitude(const double latitudeRadians) {
+    return (111412.84 * std::cos(latitudeRadians)) - (93.5 * std::cos(3.0 * latitudeRadians)) +
+        (0.118 * std::cos(5.0 * latitudeRadians));
+}
+
+bool loadDatasetSpatialContext(
+    const std::string& inputPath,
+    DatasetSpatialContext& context,
+    std::string& error
+) {
+    GDALDataset* dataset = static_cast<GDALDataset*>(
+        GDALOpenEx(inputPath.c_str(), GDAL_OF_RASTER, nullptr, nullptr, nullptr)
+    );
+    if (dataset == nullptr) {
+        error = CPLGetLastErrorMsg();
+        if (error.empty()) {
+            error = "无法打开输入数据";
+        }
+        return false;
+    }
+
+    context.sourceProjectionWkt = dataset->GetProjectionRef() == nullptr ? "" : dataset->GetProjectionRef();
+    context.hasSourceSrs = !context.sourceProjectionWkt.empty();
+
+    double geoTransform[6]{};
+    if (dataset->GetGeoTransform(geoTransform) == CE_None) {
+        context.hasGeoTransform = true;
+        const double centerPixel = static_cast<double>(dataset->GetRasterXSize()) / 2.0;
+        const double centerLine = static_cast<double>(dataset->GetRasterYSize()) / 2.0;
+        context.centerX = geoTransform[0] + (centerPixel * geoTransform[1]) + (centerLine * geoTransform[2]);
+        context.centerY = geoTransform[3] + (centerPixel * geoTransform[4]) + (centerLine * geoTransform[5]);
+    }
+
+    GDALClose(dataset);
+    error.clear();
+    return true;
+}
+
+bool importSrsFromText(const std::string& text, OGRSpatialReference& srs, std::string& error) {
+    srs.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
+    if (srs.SetFromUserInput(text.c_str()) != OGRERR_NONE) {
+        error = text;
+        return false;
+    }
+    error.clear();
+    return true;
+}
+
+bool resolveTargetSrs(
+    const rastertoolbox::config::Preset& preset,
+    const DatasetSpatialContext& context,
+    OGRSpatialReference& targetSrs,
+    std::string& error
+) {
+    if (!preset.targetEpsg.empty()) {
+        if (!importSrsFromText(preset.targetEpsg, targetSrs, error)) {
+            error = "无法解析目标坐标系: " + error;
+            return false;
+        }
+        return true;
+    }
+
+    if (!context.hasSourceSrs) {
+        error = "未指定目标坐标系，且源数据缺少坐标系";
+        return false;
+    }
+
+    if (!importSrsFromText(context.sourceProjectionWkt, targetSrs, error)) {
+        error = "无法解析源数据坐标系";
+        return false;
+    }
+    return true;
+}
+
+bool sourceCenterToWgs84(
+    const DatasetSpatialContext& context,
+    double& longitudeDegrees,
+    double& latitudeDegrees,
+    std::string& error
+) {
+    if (!context.hasGeoTransform) {
+        error = "缺少地理变换，无法进行单位换算";
+        return false;
+    }
+    if (!context.hasSourceSrs) {
+        error = "缺少源坐标系，无法进行单位换算";
+        return false;
+    }
+
+    OGRSpatialReference sourceSrs;
+    if (!importSrsFromText(context.sourceProjectionWkt, sourceSrs, error)) {
+        error = "无法解析源数据坐标系";
+        return false;
+    }
+
+    OGRSpatialReference wgs84;
+    wgs84.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
+    if (wgs84.importFromEPSG(4326) != OGRERR_NONE) {
+        error = "无法初始化 WGS84 坐标系";
+        return false;
+    }
+
+    auto transformation = std::unique_ptr<OGRCoordinateTransformation, decltype(&OCTDestroyCoordinateTransformation)>(
+        OGRCreateCoordinateTransformation(&sourceSrs, &wgs84),
+        OCTDestroyCoordinateTransformation
+    );
+    if (transformation == nullptr) {
+        error = "无法创建坐标转换用于单位换算";
+        return false;
+    }
+
+    double x = context.centerX;
+    double y = context.centerY;
+    double z = 0.0;
+    if (!transformation->Transform(1, &x, &y, &z)) {
+        error = "无法将数据中心转换到地理坐标系";
+        return false;
+    }
+
+    longitudeDegrees = x;
+    latitudeDegrees = y;
+    error.clear();
+    return true;
+}
+
+bool sourceCenterToTargetAngular(
+    const DatasetSpatialContext& context,
+    const OGRSpatialReference& targetAngularSrs,
+    double& xUnits,
+    double& yUnits,
+    std::string& error
+) {
+    if (!context.hasGeoTransform) {
+        error = "缺少地理变换，无法进行单位换算";
+        return false;
+    }
+    if (!context.hasSourceSrs) {
+        error = "缺少源坐标系，无法进行单位换算";
+        return false;
+    }
+
+    OGRSpatialReference sourceSrs;
+    if (!importSrsFromText(context.sourceProjectionWkt, sourceSrs, error)) {
+        error = "无法解析源数据坐标系";
+        return false;
+    }
+
+    OGRSpatialReference targetCopy(targetAngularSrs);
+    targetCopy.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
+
+    auto transformation = std::unique_ptr<OGRCoordinateTransformation, decltype(&OCTDestroyCoordinateTransformation)>(
+        OGRCreateCoordinateTransformation(&sourceSrs, &targetCopy),
+        OCTDestroyCoordinateTransformation
+    );
+    if (transformation == nullptr) {
+        error = "无法创建到目标地理坐标系的转换";
+        return false;
+    }
+
+    double x = context.centerX;
+    double y = context.centerY;
+    double z = 0.0;
+    if (!transformation->Transform(1, &x, &y, &z)) {
+        error = "无法将数据中心转换到目标地理坐标系";
+        return false;
+    }
+
+    xUnits = x;
+    yUnits = y;
+    error.clear();
+    return true;
+}
+
+bool resolveTargetPixelSize(
+    RasterJobRequest& request,
+    RasterJobResult& result
+) {
+    if (!hasTargetPixelSize(request.preset) || isTargetCrsUnit(request.preset.targetPixelSizeUnit)) {
+        return true;
+    }
+
+    DatasetSpatialContext context;
+    std::string error;
+    if (!loadDatasetSpatialContext(request.inputPath, context, error)) {
+        result.errorClass = rastertoolbox::common::ErrorClass::TaskError;
+        result.errorCode = "LOAD_SOURCE_CONTEXT_FAILED";
+        result.message = "无法读取源数据空间信息";
+        result.details = error;
+        return false;
+    }
+
+    OGRSpatialReference targetSrs;
+    if (!resolveTargetSrs(request.preset, context, targetSrs, error)) {
+        result.errorClass = rastertoolbox::common::ErrorClass::TaskError;
+        result.errorCode = "TARGET_SRS_RESOLUTION_FAILED";
+        result.message = "无法确定目标坐标系";
+        result.details = error;
+        return false;
+    }
+
+    const bool targetIsLinear = targetSrs.IsProjected();
+    const bool targetIsAngular = targetSrs.IsGeographic();
+    const std::string& unit = request.preset.targetPixelSizeUnit;
+
+    if (!targetIsLinear && !targetIsAngular) {
+        result.errorClass = rastertoolbox::common::ErrorClass::TaskError;
+        result.errorCode = "UNSUPPORTED_TARGET_UNIT_DOMAIN";
+        result.message = "目标坐标系单位类型不受支持";
+        result.details = unit;
+        return false;
+    }
+
+    if (isLinearUnit(unit) && targetIsLinear) {
+        const double targetMetersPerUnit = targetSrs.GetLinearUnits();
+        request.preset.targetPixelSizeX = (request.preset.targetPixelSizeX * metersPerUserLinearUnit(unit)) / targetMetersPerUnit;
+        request.preset.targetPixelSizeY = (request.preset.targetPixelSizeY * metersPerUserLinearUnit(unit)) / targetMetersPerUnit;
+        request.preset.targetPixelSizeUnit = std::string(rastertoolbox::config::kTargetPixelSizeUnitTargetCrs);
+        return true;
+    }
+
+    if (isAngularUnit(unit) && targetIsAngular) {
+        const double targetRadiansPerUnit = targetSrs.GetAngularUnits();
+        request.preset.targetPixelSizeX = (request.preset.targetPixelSizeX * radiansPerUserAngularUnit(unit)) / targetRadiansPerUnit;
+        request.preset.targetPixelSizeY = (request.preset.targetPixelSizeY * radiansPerUserAngularUnit(unit)) / targetRadiansPerUnit;
+        request.preset.targetPixelSizeUnit = std::string(rastertoolbox::config::kTargetPixelSizeUnitTargetCrs);
+        return true;
+    }
+
+    double longitudeDegrees = 0.0;
+    double latitudeDegrees = 0.0;
+    if (!sourceCenterToWgs84(context, longitudeDegrees, latitudeDegrees, error)) {
+        result.errorClass = rastertoolbox::common::ErrorClass::TaskError;
+        result.errorCode = "TARGET_PIXEL_SIZE_CONVERSION_FAILED";
+        result.message = "无法按隐式单位换算输出分辨率";
+        result.details = error;
+        return false;
+    }
+
+    (void)longitudeDegrees;
+    const double latitudeRadians = latitudeDegrees * DegreesToRadians;
+    const double metersPerDegreeX = std::max(MinMetersPerDegree, std::abs(metersPerDegreeLongitude(latitudeRadians)));
+    const double metersPerDegreeY = std::max(MinMetersPerDegree, std::abs(metersPerDegreeLatitude(latitudeRadians)));
+
+    if (isLinearUnit(unit) && targetIsAngular) {
+        const double targetRadiansPerUnit = targetSrs.GetAngularUnits();
+        const double xDegrees = (request.preset.targetPixelSizeX * metersPerUserLinearUnit(unit)) / metersPerDegreeX;
+        const double yDegrees = (request.preset.targetPixelSizeY * metersPerUserLinearUnit(unit)) / metersPerDegreeY;
+        request.preset.targetPixelSizeX = (xDegrees * DegreesToRadians) / targetRadiansPerUnit;
+        request.preset.targetPixelSizeY = (yDegrees * DegreesToRadians) / targetRadiansPerUnit;
+        request.preset.targetPixelSizeUnit = std::string(rastertoolbox::config::kTargetPixelSizeUnitTargetCrs);
+        return true;
+    }
+
+    if (isAngularUnit(unit) && targetIsLinear) {
+        auto targetGeographicSrs = std::unique_ptr<OGRSpatialReference>(targetSrs.CloneGeogCS());
+        if (targetGeographicSrs == nullptr) {
+            result.errorClass = rastertoolbox::common::ErrorClass::TaskError;
+            result.errorCode = "TARGET_PIXEL_SIZE_CONVERSION_FAILED";
+            result.message = "无法解析目标地理坐标系";
+            result.details = targetSrs.GetName() == nullptr ? "unknown target SRS" : targetSrs.GetName();
+            return false;
+        }
+        targetGeographicSrs->SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
+
+        double centerLongitude = 0.0;
+        double centerLatitude = 0.0;
+        if (!sourceCenterToTargetAngular(context, *targetGeographicSrs, centerLongitude, centerLatitude, error)) {
+            result.errorClass = rastertoolbox::common::ErrorClass::TaskError;
+            result.errorCode = "TARGET_PIXEL_SIZE_CONVERSION_FAILED";
+            result.message = "无法按隐式单位换算输出分辨率";
+            result.details = error;
+            return false;
+        }
+
+        OGRSpatialReference projectedCopy(targetSrs);
+        projectedCopy.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
+        auto transformation = std::unique_ptr<OGRCoordinateTransformation, decltype(&OCTDestroyCoordinateTransformation)>(
+            OGRCreateCoordinateTransformation(targetGeographicSrs.get(), &projectedCopy),
+            OCTDestroyCoordinateTransformation
+        );
+        if (transformation == nullptr) {
+            result.errorClass = rastertoolbox::common::ErrorClass::TaskError;
+            result.errorCode = "TARGET_PIXEL_SIZE_CONVERSION_FAILED";
+            result.message = "无法创建地理到投影坐标系的转换";
+            result.details.clear();
+            return false;
+        }
+
+        const double geographicRadiansPerUnit = targetGeographicSrs->GetAngularUnits();
+        const double xOffsetUnits = (request.preset.targetPixelSizeX * radiansPerUserAngularUnit(unit)) / geographicRadiansPerUnit;
+        const double yOffsetUnits = (request.preset.targetPixelSizeY * radiansPerUserAngularUnit(unit)) / geographicRadiansPerUnit;
+
+        double baseX = centerLongitude;
+        double baseY = centerLatitude;
+        double baseZ = 0.0;
+        double xShiftX = centerLongitude + xOffsetUnits;
+        double xShiftY = centerLatitude;
+        double xShiftZ = 0.0;
+        double yShiftX = centerLongitude;
+        double yShiftY = centerLatitude + yOffsetUnits;
+        double yShiftZ = 0.0;
+
+        if (!transformation->Transform(1, &baseX, &baseY, &baseZ) ||
+            !transformation->Transform(1, &xShiftX, &xShiftY, &xShiftZ) ||
+            !transformation->Transform(1, &yShiftX, &yShiftY, &yShiftZ)) {
+            result.errorClass = rastertoolbox::common::ErrorClass::TaskError;
+            result.errorCode = "TARGET_PIXEL_SIZE_CONVERSION_FAILED";
+            result.message = "无法将角度分辨率转换到目标投影坐标系";
+            result.details.clear();
+            return false;
+        }
+
+        request.preset.targetPixelSizeX = std::abs(xShiftX - baseX);
+        request.preset.targetPixelSizeY = std::abs(yShiftY - baseY);
+        request.preset.targetPixelSizeUnit = std::string(rastertoolbox::config::kTargetPixelSizeUnitTargetCrs);
+        return true;
+    }
+
+    result.errorClass = rastertoolbox::common::ErrorClass::TaskError;
+    result.errorCode = "TARGET_PIXEL_SIZE_UNIT_UNSUPPORTED";
+    result.message = "输出分辨率单位与目标坐标系组合不受支持";
+    result.details = unit;
+    return false;
+}
 
 std::vector<std::pair<std::filesystem::path, std::filesystem::path>> knownSidecarMoves(
     const std::filesystem::path& workingOutputPath,
@@ -201,6 +590,11 @@ RasterJobResult RasterExecutionService::execute(
 
     RasterJobRequest workingRequest = request;
     workingRequest.outputPath = workingOutputPath.string();
+    RasterJobResult resolutionResult;
+    resolutionResult.outputPath = request.outputPath;
+    if (!resolveTargetPixelSize(workingRequest, resolutionResult)) {
+        return resolutionResult;
+    }
 
     RasterJobResult convertResult = converter_.convert(
         workingRequest,

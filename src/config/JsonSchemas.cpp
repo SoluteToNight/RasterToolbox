@@ -95,6 +95,19 @@ bool isAllowedCompressionMethod(const std::string& value) {
     return allowed.contains(upper(trim(value)));
 }
 
+bool isAllowedTargetPixelSizeUnit(const std::string& value) {
+    static const std::unordered_set<std::string> allowed = {
+        std::string(rastertoolbox::config::kTargetPixelSizeUnitTargetCrs),
+        std::string(rastertoolbox::config::kTargetPixelSizeUnitMeters),
+        std::string(rastertoolbox::config::kTargetPixelSizeUnitKilometers),
+        std::string(rastertoolbox::config::kTargetPixelSizeUnitFeet),
+        std::string(rastertoolbox::config::kTargetPixelSizeUnitDegrees),
+        std::string(rastertoolbox::config::kTargetPixelSizeUnitArcMinutes),
+        std::string(rastertoolbox::config::kTargetPixelSizeUnitArcSeconds),
+    };
+    return allowed.contains(lower(trim(value)));
+}
+
 } // namespace
 
 bool JsonSchemas::validatePreset(const Preset& preset, std::string& error) {
@@ -120,6 +133,10 @@ bool JsonSchemas::validatePreset(const Preset& preset, std::string& error) {
     }
     if ((preset.targetPixelSizeX > 0.0) != (preset.targetPixelSizeY > 0.0)) {
         error = "targetPixelSizeX 与 targetPixelSizeY 必须同时设置";
+        return false;
+    }
+    if (!trim(preset.targetPixelSizeUnit).empty() && !isAllowedTargetPixelSizeUnit(preset.targetPixelSizeUnit)) {
+        error = "targetPixelSizeUnit 不受支持";
         return false;
     }
     if (preset.outputSuffix.empty()) {

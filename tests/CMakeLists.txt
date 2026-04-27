@@ -17,6 +17,17 @@ target_link_libraries(test_preset_schema PRIVATE nlohmann_json::nlohmann_json)
 add_test(NAME preset_schema COMMAND test_preset_schema)
 set_tests_properties(preset_schema PROPERTIES LABELS "preset;config")
 
+add_executable(test_preset_repository unit/config/test_preset_repository.cpp)
+target_include_directories(test_preset_repository PRIVATE ${PROJECT_SOURCE_DIR}/include)
+target_sources(test_preset_repository PRIVATE
+    ${PROJECT_SOURCE_DIR}/src/config/PresetRepository.cpp
+    ${PROJECT_SOURCE_DIR}/src/config/JsonSchemas.cpp
+    ${PROJECT_SOURCE_DIR}/resources/qrc/app.qrc
+)
+target_link_libraries(test_preset_repository PRIVATE Qt6::Core nlohmann_json::nlohmann_json)
+add_test(NAME preset_repository COMMAND test_preset_repository)
+set_tests_properties(preset_repository PROPERTIES LABELS "preset;config")
+
 add_executable(test_engine_contract unit/engine/test_engine_contract.cpp)
 target_include_directories(test_engine_contract PRIVATE ${PROJECT_SOURCE_DIR}/include)
 target_sources(test_engine_contract PRIVATE

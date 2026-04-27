@@ -288,6 +288,9 @@ bool TaskQueueManager::updateProgress(
 
     for (Task& task : tasks_) {
         if (task.id == taskId) {
+            if (task.progress == progress && task.statusMessage == message) {
+                return false;
+            }
             task.progress = progress;
             task.statusMessage = message;
             task.updatedAt = rastertoolbox::common::utcNowIso8601Millis();

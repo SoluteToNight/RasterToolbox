@@ -45,6 +45,7 @@ private:
     void wireEvents();
     void updateCompressionControls();
     void updateTargetPixelSizeControls();
+    void updateTargetPixelSizeHints();
     void loadCompressionControlsFromOptions(const nlohmann::json& options);
 
     std::vector<rastertoolbox::config::Preset> presets_;
@@ -70,7 +71,7 @@ private:
     QComboBox* targetPixelSizeModeCombo_{};
     QDoubleSpinBox* targetPixelSizeXSpin_{};
     QDoubleSpinBox* targetPixelSizeYSpin_{};
-    QCheckBox* targetPixelSizeLockCheck_{};
+    QComboBox* targetPixelSizeUnitCombo_{};
     QLabel* targetPixelSizeHelpLabel_{};
     QComboBox* resamplingCombo_{};
     QCheckBox* overwriteCheck_{};

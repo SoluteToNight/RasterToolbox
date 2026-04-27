@@ -1,6 +1,7 @@
 #pragma once
 
 #include <functional>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -57,6 +58,8 @@ private:
     void dispatchTask(const Task& task);
     void handleTaskFinished(const std::string& taskId, QFutureWatcher<rastertoolbox::engine::RasterJobResult>* watcher);
 
+    void markStateChanged();
+    void emitSnapshotIfChanged();
     void emitEvent(ProgressEvent event);
     void emitSnapshot();
 
@@ -69,6 +72,8 @@ private:
     std::unordered_map<std::string, QFutureWatcher<rastertoolbox::engine::RasterJobResult>*> runningWatchers_;
 
     QTimer* schedulerTimer_{};
+    std::uint64_t stateRevision_{0};
+    std::uint64_t emittedRevision_{0};
 
     std::function<void(const ProgressEvent&)> eventSink_;
     std::function<void(const std::vector<Task>&)> snapshotSink_;

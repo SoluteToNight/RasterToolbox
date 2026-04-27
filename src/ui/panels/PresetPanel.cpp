@@ -1,6 +1,7 @@
 #include "rastertoolbox/ui/panels/PresetPanel.hpp"
 
 #include <algorithm>
+#include <cctype>
 
 #include <QCheckBox>
 #include <QComboBox>
@@ -21,6 +22,8 @@
 #include <QWidget>
 
 #include <nlohmann/json.hpp>
+
+#include "rastertoolbox/config/JsonSchemas.hpp"
 
 namespace rastertoolbox::ui::panels {
 
@@ -287,6 +290,74 @@ QString joinOverviewLevels(const std::vector<int>& levels) {
     return values.join(", ");
 }
 
+std::string normalizedUnitValue(std::string value) {
+    value.erase(
+        value.begin(),
+        std::find_if(value.begin(), value.end(), [](unsigned char ch) { return !std::isspace(ch); })
+    );
+    value.erase(
+        std::find_if(value.rbegin(), value.rend(), [](unsigned char ch) { return !std::isspace(ch); }).base(),
+        value.end()
+    );
+    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char ch) {
+        return static_cast<char>(std::tolower(ch));
+    });
+    return value;
+}
+
+struct PixelUnitDefinition {
+    QString label;
+    QString suffix;
+    std::string value;
+};
+
+const std::vector<PixelUnitDefinition>& pixelUnitDefinitions() {
+    static const std::vector<PixelUnitDefinition> definitions = {
+        {"目标坐标系单位", " CRS", std::string(rastertoolbox::config::kTargetPixelSizeUnitTargetCrs)},
+        {"米 (m)", " m", std::string(rastertoolbox::config::kTargetPixelSizeUnitMeters)},
+        {"千米 (km)", " km", std::string(rastertoolbox::config::kTargetPixelSizeUnitKilometers)},
+        {"英尺 (ft)", " ft", std::string(rastertoolbox::config::kTargetPixelSizeUnitFeet)},
+        {"度 (deg)", " deg", std::string(rastertoolbox::config::kTargetPixelSizeUnitDegrees)},
+        {"角分 (arc-minute)", " arcmin", std::string(rastertoolbox::config::kTargetPixelSizeUnitArcMinutes)},
+        {"角秒 (arc-second)", " arcsec", std::string(rastertoolbox::config::kTargetPixelSizeUnitArcSeconds)},
+    };
+    return definitions;
+}
+
+const PixelUnitDefinition* findPixelUnitDefinition(const std::string& value) {
+    const auto normalized = normalizedUnitValue(value);
+    const auto& definitions = pixelUnitDefinitions();
+    const auto it = std::find_if(definitions.begin(), definitions.end(), [&normalized](const PixelUnitDefinition& item) {
+        return normalizedUnitValue(item.value) == normalized;
+    });
+    return it == definitions.end() ? nullptr : &(*it);
+}
+
+void populatePixelUnitCombo(QComboBox* combo) {
+    combo->clear();
+    for (const auto& definition : pixelUnitDefinitions()) {
+        combo->addItem(definition.label, QString::fromStdString(definition.value));
+    }
+}
+
+void setPixelUnitValue(QComboBox* combo, const std::string& value) {
+    const auto normalized = QString::fromStdString(normalizedUnitValue(value));
+    const int index = combo->findData(normalized);
+    if (index >= 0) {
+        combo->setCurrentIndex(index);
+        return;
+    }
+
+    combo->setCurrentIndex(0);
+}
+
+std::string currentPixelUnitValue(const QComboBox* combo) {
+    const auto value = combo->currentData().toString().trimmed();
+    return value.isEmpty()
+        ? std::string(rastertoolbox::config::kTargetPixelSizeUnitTargetCrs)
+        : value.toStdString();
+}
+
 QString normalizeEpsgInput(QString value) {
     value = value.trimmed();
     if (value.isEmpty()) {
@@ -482,7 +553,7 @@ PresetPanel::PresetPanel(QWidget* parent) : QWidget(parent) {
     formLayout->setVerticalSpacing(10);
     outputFormatCombo_ = new QComboBox(this);
     outputFormatCombo_->setObjectName("outputFormatCombo");
-    outputFormatCombo_->setEditable(true);
+    outputFormatCombo_->setEditable(false);
     for (const auto& definition : outputFormatDefinitions()) {
         outputFormatCombo_->addItem(definition.label);
     }
@@ -555,17 +626,17 @@ PresetPanel::PresetPanel(QWidget* parent) : QWidget(parent) {
     targetPixelSizeXSpin_->setObjectName("targetPixelSizeXSpin");
     targetPixelSizeXSpin_->setRange(0.0, 100000000.0);
     targetPixelSizeXSpin_->setDecimals(6);
-    targetPixelSizeXSpin_->setSuffix(" 单位");
+    targetPixelSizeXSpin_->setSuffix(" CRS");
     targetPixelSizeXSpin_->setToolTip("目标像元大小 X，单位为目标坐标系单位");
     targetPixelSizeYSpin_ = new QDoubleSpinBox(this);
     targetPixelSizeYSpin_->setObjectName("targetPixelSizeYSpin");
     targetPixelSizeYSpin_->setRange(0.0, 100000000.0);
     targetPixelSizeYSpin_->setDecimals(6);
-    targetPixelSizeYSpin_->setSuffix(" 单位");
+    targetPixelSizeYSpin_->setSuffix(" CRS");
     targetPixelSizeYSpin_->setToolTip("目标像元大小 Y，单位为目标坐标系单位");
-    targetPixelSizeLockCheck_ = new QCheckBox("锁定 X/Y", this);
-    targetPixelSizeLockCheck_->setObjectName("targetPixelSizeLockCheck");
-    targetPixelSizeLockCheck_->setChecked(true);
+    targetPixelSizeUnitCombo_ = new QComboBox(this);
+    targetPixelSizeUnitCombo_->setObjectName("targetPixelSizeUnitCombo");
+    populatePixelUnitCombo(targetPixelSizeUnitCombo_);
     targetPixelSizeHelpLabel_ = new QLabel("单位为目标坐标系单位；地理坐标系通常为度，投影坐标系通常为米", this);
     targetPixelSizeHelpLabel_->setObjectName("targetPixelSizeHelpLabel");
     targetPixelSizeHelpLabel_->setProperty("semanticRole", QStringLiteral("summary"));
@@ -583,7 +654,7 @@ PresetPanel::PresetPanel(QWidget* parent) : QWidget(parent) {
     pixelSizeLayout->addWidget(targetPixelSizeXSpin_);
     pixelSizeLayout->addWidget(new QLabel("Y", pixelSizeRow));
     pixelSizeLayout->addWidget(targetPixelSizeYSpin_);
-    pixelSizeLayout->addWidget(targetPixelSizeLockCheck_);
+    pixelSizeLayout->addWidget(targetPixelSizeUnitCombo_);
     pixelSizePanelLayout->addWidget(pixelSizeRow);
     pixelSizePanelLayout->addWidget(targetPixelSizeHelpLabel_);
     resamplingCombo_ = new QComboBox(this);
@@ -639,8 +710,10 @@ PresetPanel::PresetPanel(QWidget* parent) : QWidget(parent) {
     validationLabel_->setObjectName("presetValidationLabel");
     validationLabel_->setProperty("semanticRole", QStringLiteral("validation"));
     layout->addWidget(validationLabel_);
+    layout->addStretch(1);
 
     wireEvents();
+    updateTargetPixelSizeControls();
 }
 
 void PresetPanel::wireEvents() {
@@ -756,18 +829,11 @@ void PresetPanel::wireEvents() {
         updateTargetPixelSizeControls();
         formChanged();
     });
-    connect(targetPixelSizeLockCheck_, &QCheckBox::checkStateChanged, this, [this, formChanged](Qt::CheckState) {
-        if (targetPixelSizeLockCheck_->isChecked()) {
-            const QSignalBlocker yBlocker(targetPixelSizeYSpin_);
-            targetPixelSizeYSpin_->setValue(targetPixelSizeXSpin_->value());
-        }
+    connect(targetPixelSizeUnitCombo_, &QComboBox::currentIndexChanged, this, [this, formChanged](int) {
+        updateTargetPixelSizeHints();
         formChanged();
     });
-    connect(targetPixelSizeXSpin_, &QDoubleSpinBox::valueChanged, this, [this, formChanged](double value) {
-        if (targetPixelSizeLockCheck_->isChecked()) {
-            const QSignalBlocker yBlocker(targetPixelSizeYSpin_);
-            targetPixelSizeYSpin_->setValue(value);
-        }
+    connect(targetPixelSizeXSpin_, &QDoubleSpinBox::valueChanged, this, [formChanged](double) {
         formChanged();
     });
     connect(targetPixelSizeYSpin_, &QDoubleSpinBox::valueChanged, this, [formChanged](double) { formChanged(); });
@@ -880,11 +946,35 @@ void PresetPanel::updateTargetPixelSizeControls() {
     const bool specifySize = targetPixelSizeModeCombo_->currentText() == "指定像元大小";
     targetPixelSizeXSpin_->setEnabled(specifySize);
     targetPixelSizeYSpin_->setEnabled(specifySize);
-    targetPixelSizeLockCheck_->setEnabled(specifySize);
-    if (specifySize && targetPixelSizeLockCheck_->isChecked()) {
-        const QSignalBlocker yBlocker(targetPixelSizeYSpin_);
-        targetPixelSizeYSpin_->setValue(targetPixelSizeXSpin_->value());
+    targetPixelSizeUnitCombo_->setEnabled(specifySize);
+    updateTargetPixelSizeHints();
+}
+
+void PresetPanel::updateTargetPixelSizeHints() {
+    const auto* definition = findPixelUnitDefinition(currentPixelUnitValue(targetPixelSizeUnitCombo_));
+    const QString suffix = definition == nullptr ? " CRS" : definition->suffix;
+    targetPixelSizeXSpin_->setSuffix(suffix);
+    targetPixelSizeYSpin_->setSuffix(suffix);
+
+    if (targetPixelSizeModeCombo_->currentText() != "指定像元大小") {
+        targetPixelSizeHelpLabel_->setText("沿用源分辨率时不会写入目标像元大小。");
+        return;
     }
+
+    const QString epsgText = normalizeEpsgInput(targetEpsgEdit_->text());
+    if (definition == nullptr ||
+        definition->value == rastertoolbox::config::kTargetPixelSizeUnitTargetCrs) {
+        targetPixelSizeHelpLabel_->setText(
+            epsgText.isEmpty()
+                ? "按目标坐标系单位输入；若未指定目标坐标系，则沿用源数据坐标系单位。"
+                : QString("按目标坐标系单位输入；当前目标坐标系为 %1。").arg(epsgText)
+        );
+        return;
+    }
+
+    targetPixelSizeHelpLabel_->setText(
+        QString("按 %1 输入；执行任务时会自动换算到目标坐标系单位。").arg(definition->label)
+    );
 }
 
 void PresetPanel::loadCompressionControlsFromOptions(const nlohmann::json& options) {
@@ -947,6 +1037,7 @@ void PresetPanel::applyPresetToForm(const rastertoolbox::config::Preset& preset)
     const QSignalBlocker pixelModeBlocker(targetPixelSizeModeCombo_);
     const QSignalBlocker pixelXBlocker(targetPixelSizeXSpin_);
     const QSignalBlocker pixelYBlocker(targetPixelSizeYSpin_);
+    const QSignalBlocker pixelUnitBlocker(targetPixelSizeUnitCombo_);
 
     setComboText(outputFormatCombo_, QString::fromStdString(preset.outputFormat));
     const auto* definition = findFormatDefinition(outputFormatCombo_->currentText());
@@ -966,6 +1057,7 @@ void PresetPanel::applyPresetToForm(const rastertoolbox::config::Preset& preset)
     );
     targetPixelSizeXSpin_->setValue(preset.targetPixelSizeX);
     targetPixelSizeYSpin_->setValue(preset.targetPixelSizeY);
+    setPixelUnitValue(targetPixelSizeUnitCombo_, preset.targetPixelSizeUnit);
     updateTargetPixelSizeControls();
     resamplingCombo_->setCurrentText(QString::fromStdString(preset.resampling));
     overwriteCheck_->setChecked(preset.overwriteExisting);
@@ -981,6 +1073,7 @@ rastertoolbox::config::Preset PresetPanel::presetFromForm() const {
     if (index >= 0 && index < static_cast<int>(presets_.size())) {
         preset = presets_[static_cast<std::size_t>(index)];
     }
+    preset.schemaVersion = rastertoolbox::config::JsonSchemas::kPresetSchemaVersion;
 
     const auto outputFormatText = outputFormatCombo_->currentText();
     preset.outputFormat = outputFormatText.toStdString();
@@ -1004,6 +1097,7 @@ rastertoolbox::config::Preset PresetPanel::presetFromForm() const {
         preset.targetPixelSizeX = 0.0;
         preset.targetPixelSizeY = 0.0;
     }
+    preset.targetPixelSizeUnit = currentPixelUnitValue(targetPixelSizeUnitCombo_);
     preset.resampling = resamplingCombo_->currentText().toStdString();
     preset.overwriteExisting = overwriteCheck_->isChecked();
     const auto rawGdalOptions = gdalOptionsEdit_->toPlainText().trimmed().toStdString();

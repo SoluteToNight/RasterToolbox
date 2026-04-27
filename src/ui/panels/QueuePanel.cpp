@@ -1,11 +1,13 @@
 #include "rastertoolbox/ui/panels/QueuePanel.hpp"
 
 #include <filesystem>
+#include <functional>
 
 #include <QAbstractItemView>
 #include <QHeaderView>
 #include <QHBoxLayout>
 #include <QPushButton>
+#include <QSignalBlocker>
 #include <QTableWidget>
 #include <QTableWidgetItem>
 #include <QVBoxLayout>
@@ -133,6 +135,70 @@ QTableWidgetItem* createMessageItem(const rastertoolbox::dispatcher::Task& task)
     item->setData(Qt::UserRole, QString("error-class:%1").arg(errorClassText).toLower());
     item->setToolTip(QString("ErrorClass: %1\n%2").arg(errorClassText, message));
     return item;
+}
+
+QTableWidgetItem* ensureItem(
+    QTableWidget* table,
+    const int row,
+    const int column,
+    const std::function<QTableWidgetItem*()>& factory
+) {
+    if (auto* item = table->item(row, column); item != nullptr) {
+        return item;
+    }
+
+    auto* item = factory();
+    table->setItem(row, column, item);
+    return item;
+}
+
+void updatePathItem(QTableWidgetItem* item, const std::string& path) {
+    item->setText(fileNameForPath(path));
+    item->setToolTip(QString::fromStdString(path));
+}
+
+void updateTaskNumberItem(QTableWidgetItem* item, const int row, const std::string& taskId) {
+    item->setText(QString::number(row + 1));
+    item->setData(Qt::UserRole, QString::fromStdString(taskId));
+    item->setToolTip(QString::fromStdString(taskId));
+    item->setTextAlignment(Qt::AlignCenter);
+}
+
+void updatePresetItem(QTableWidgetItem* item, const rastertoolbox::dispatcher::Task& task) {
+    const QString presetSummary = QString("%1/%2/Ov:%3")
+                                      .arg(QString::fromStdString(task.presetSnapshot.outputFormat))
+                                      .arg(QString::fromStdString(task.presetSnapshot.compressionMethod))
+                                      .arg(task.presetSnapshot.buildOverviews ? "Y" : "N");
+    item->setText(presetSummary);
+    item->setToolTip(presetSummary);
+}
+
+void updateStatusItem(QTableWidgetItem* item, const rastertoolbox::dispatcher::TaskStatus status) {
+    item->setText(statusToString(status));
+    item->setData(Qt::UserRole, statusSemanticRole(status));
+    item->setToolTip(statusTooltip(status));
+}
+
+void updateProgressItem(QTableWidgetItem* item, const double progress) {
+    item->setText(QString::number(progress, 'f', 1));
+    item->setData(Qt::UserRole, QStringLiteral("metric:progress"));
+    item->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    item->setToolTip(QString("Progress: %1%").arg(QString::number(progress, 'f', 1)));
+}
+
+void updateMessageItem(QTableWidgetItem* item, const rastertoolbox::dispatcher::Task& task) {
+    QString message = QString::fromStdString(task.statusMessage);
+    if (!task.errorCode.empty()) {
+        message += QString(" [") + QString::fromStdString(task.errorCode) + "]";
+    }
+    if (!task.details.empty()) {
+        message += QString(" {") + QString::fromStdString(task.details) + "}";
+    }
+
+    const auto errorClassText = QString::fromUtf8(rastertoolbox::common::toString(task.errorClass).data());
+    item->setText(message);
+    item->setData(Qt::UserRole, QString("error-class:%1").arg(errorClassText).toLower());
+    item->setToolTip(QString("ErrorClass: %1\n%2").arg(errorClassText, message));
 }
 
 } // namespace
@@ -289,23 +355,60 @@ void QueuePanel::wireEvents() {
 }
 
 void QueuePanel::setTasks(const std::vector<rastertoolbox::dispatcher::Task>& tasks) {
+    const std::string selectedTask = selectedTaskId();
+    const QSignalBlocker selectionBlocker(table_->selectionModel());
+    table_->setUpdatesEnabled(false);
     table_->setRowCount(static_cast<int>(tasks.size()));
 
     int row = 0;
     for (const auto& task : tasks) {
-        table_->setItem(row, 0, createTaskNumberItem(row, task.id));
-        table_->setItem(row, 1, createPathItem(task.inputPath));
-        table_->setItem(row, 2, createPathItem(task.outputPath));
-        const QString presetSummary = QString("%1/%2/Ov:%3")
-                                          .arg(QString::fromStdString(task.presetSnapshot.outputFormat))
-                                          .arg(QString::fromStdString(task.presetSnapshot.compressionMethod))
-                                          .arg(task.presetSnapshot.buildOverviews ? "Y" : "N");
-        table_->setItem(row, 3, createItem(presetSummary));
-        table_->setItem(row, 4, createStatusItem(task.status));
-        table_->setItem(row, 5, createProgressItem(task.progress));
-        table_->setItem(row, 6, createMessageItem(task));
+        syncTaskRow(row, task);
         ++row;
     }
+
+    if (!selectedTask.empty()) {
+        const int selectedRow = rowForTaskId(selectedTask);
+        if (selectedRow >= 0) {
+            table_->selectRow(selectedRow);
+        }
+    }
+
+    table_->setUpdatesEnabled(true);
+}
+
+int QueuePanel::rowForTaskId(const std::string& taskId) const {
+    for (int row = 0; row < table_->rowCount(); ++row) {
+        if (const auto* item = table_->item(row, 0); item != nullptr &&
+            item->data(Qt::UserRole).toString().toStdString() == taskId) {
+            return row;
+        }
+    }
+
+    return -1;
+}
+
+void QueuePanel::syncTaskRow(const int row, const rastertoolbox::dispatcher::Task& task) {
+    updateTaskNumberItem(ensureItem(table_, row, 0, [&]() {
+        return createTaskNumberItem(row, task.id);
+    }), row, task.id);
+    updatePathItem(ensureItem(table_, row, 1, [&]() {
+        return createPathItem(task.inputPath);
+    }), task.inputPath);
+    updatePathItem(ensureItem(table_, row, 2, [&]() {
+        return createPathItem(task.outputPath);
+    }), task.outputPath);
+    updatePresetItem(ensureItem(table_, row, 3, [&]() {
+        return createItem({});
+    }), task);
+    updateStatusItem(ensureItem(table_, row, 4, [&]() {
+        return createStatusItem(task.status);
+    }), task.status);
+    updateProgressItem(ensureItem(table_, row, 5, [&]() {
+        return createProgressItem(task.progress);
+    }), task.progress);
+    updateMessageItem(ensureItem(table_, row, 6, [&]() {
+        return createMessageItem(task);
+    }), task);
 }
 
 std::string QueuePanel::selectedTaskId() const {

@@ -1,5 +1,6 @@
 #include <cassert>
 #include <algorithm>
+#include <cmath>
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -18,6 +19,7 @@ int main() {
     std::filesystem::create_directories(tempDir);
 
     const auto inputPath = tempDir / "input.tif";
+    const auto highLatitudeInputPath = tempDir / "input-high-lat.tif";
     const auto outputPath = tempDir / "output.tif";
     const auto canceledOutputPath = tempDir / "canceled-output.tif";
 
@@ -35,6 +37,17 @@ int main() {
     double geotransform[6] = {0.0, 30.0, 0.0, 0.0, 0.0, -30.0};
     assert(source->SetGeoTransform(geotransform) == CE_None);
     GDALClose(source);
+
+    GDALDataset* highLatitudeSource = driver->Create(highLatitudeInputPath.string().c_str(), 32, 32, 1, GDT_Byte, nullptr);
+    assert(highLatitudeSource != nullptr);
+    char* highLatitudeWkt = nullptr;
+    assert(sourceSrs.exportToWkt(&highLatitudeWkt) == OGRERR_NONE);
+    assert(highLatitudeSource->SetProjection(highLatitudeWkt) == CE_None);
+    CPLFree(highLatitudeWkt);
+    constexpr double WebMercatorYAt60North = 8399737.889818357;
+    double highLatitudeGeotransform[6] = {0.0, 30.0, 0.0, WebMercatorYAt60North + 480.0, 0.0, -30.0};
+    assert(highLatitudeSource->SetGeoTransform(highLatitudeGeotransform) == CE_None);
+    GDALClose(highLatitudeSource);
 
     rastertoolbox::engine::RasterJobRequest request;
     request.taskId = "task-test";
@@ -112,6 +125,107 @@ int main() {
     assert(resizedGeotransform[1] == 15.0);
     assert(resizedGeotransform[5] == -15.0);
     GDALClose(resizedDataset);
+
+    const auto arcSecondOutputPath = tempDir / "arcsecond-output.tif";
+    rastertoolbox::engine::RasterJobRequest arcSecondRequest = request;
+    arcSecondRequest.taskId = "task-arcsecond";
+    arcSecondRequest.outputPath = arcSecondOutputPath.string();
+    arcSecondRequest.preset.targetEpsg = "EPSG:4326";
+    arcSecondRequest.preset.targetPixelSizeX = 1.0;
+    arcSecondRequest.preset.targetPixelSizeY = 1.0;
+    arcSecondRequest.preset.targetPixelSizeUnit = std::string(rastertoolbox::config::kTargetPixelSizeUnitArcSeconds);
+    const auto arcSecondResult = service.execute(
+        arcSecondRequest,
+        workerContext,
+        [](const rastertoolbox::dispatcher::ProgressEvent&) {}
+    );
+    assert(arcSecondResult.success);
+    GDALDataset* arcSecondDataset = static_cast<GDALDataset*>(
+        GDALOpenEx(arcSecondOutputPath.string().c_str(), GDAL_OF_RASTER, nullptr, nullptr, nullptr)
+    );
+    assert(arcSecondDataset != nullptr);
+    double arcSecondGeotransform[6] = {};
+    assert(arcSecondDataset->GetGeoTransform(arcSecondGeotransform) == CE_None);
+    assert(std::abs(arcSecondGeotransform[1] - (1.0 / 3600.0)) < 1e-6);
+    assert(std::abs(std::abs(arcSecondGeotransform[5]) - (1.0 / 3600.0)) < 1e-6);
+    GDALClose(arcSecondDataset);
+
+    const auto meterToDegreesOutputPath = tempDir / "meter-to-degrees-output.tif";
+    rastertoolbox::engine::RasterJobRequest meterToDegreesRequest = request;
+    meterToDegreesRequest.taskId = "task-meter-to-degrees";
+    meterToDegreesRequest.outputPath = meterToDegreesOutputPath.string();
+    meterToDegreesRequest.preset.targetEpsg = "EPSG:4326";
+    meterToDegreesRequest.preset.targetPixelSizeX = 30.0;
+    meterToDegreesRequest.preset.targetPixelSizeY = 30.0;
+    meterToDegreesRequest.preset.targetPixelSizeUnit = std::string(rastertoolbox::config::kTargetPixelSizeUnitMeters);
+    const auto meterToDegreesResult = service.execute(
+        meterToDegreesRequest,
+        workerContext,
+        [](const rastertoolbox::dispatcher::ProgressEvent&) {}
+    );
+    assert(meterToDegreesResult.success);
+    GDALDataset* meterToDegreesDataset = static_cast<GDALDataset*>(
+        GDALOpenEx(meterToDegreesOutputPath.string().c_str(), GDAL_OF_RASTER, nullptr, nullptr, nullptr)
+    );
+    assert(meterToDegreesDataset != nullptr);
+    double meterToDegreesGeotransform[6] = {};
+    assert(meterToDegreesDataset->GetGeoTransform(meterToDegreesGeotransform) == CE_None);
+    assert(meterToDegreesGeotransform[1] > 0.0002);
+    assert(meterToDegreesGeotransform[1] < 0.0003);
+    assert(std::abs(meterToDegreesGeotransform[5]) > 0.0002);
+    assert(std::abs(meterToDegreesGeotransform[5]) < 0.0003);
+    GDALClose(meterToDegreesDataset);
+
+    const auto arcSecondToMetersOutputPath = tempDir / "arcsecond-to-meters-output.tif";
+    rastertoolbox::engine::RasterJobRequest arcSecondToMetersRequest = request;
+    arcSecondToMetersRequest.taskId = "task-arcsecond-to-meters";
+    arcSecondToMetersRequest.outputPath = arcSecondToMetersOutputPath.string();
+    arcSecondToMetersRequest.preset.targetPixelSizeX = 1.0;
+    arcSecondToMetersRequest.preset.targetPixelSizeY = 1.0;
+    arcSecondToMetersRequest.preset.targetPixelSizeUnit = std::string(rastertoolbox::config::kTargetPixelSizeUnitArcSeconds);
+    const auto arcSecondToMetersResult = service.execute(
+        arcSecondToMetersRequest,
+        workerContext,
+        [](const rastertoolbox::dispatcher::ProgressEvent&) {}
+    );
+    assert(arcSecondToMetersResult.success);
+    GDALDataset* arcSecondToMetersDataset = static_cast<GDALDataset*>(
+        GDALOpenEx(arcSecondToMetersOutputPath.string().c_str(), GDAL_OF_RASTER, nullptr, nullptr, nullptr)
+    );
+    assert(arcSecondToMetersDataset != nullptr);
+    double arcSecondToMetersGeotransform[6] = {};
+    assert(arcSecondToMetersDataset->GetGeoTransform(arcSecondToMetersGeotransform) == CE_None);
+    assert(arcSecondToMetersGeotransform[1] > 30.0);
+    assert(arcSecondToMetersGeotransform[1] < 31.5);
+    assert(std::abs(arcSecondToMetersGeotransform[5]) > 30.0);
+    assert(std::abs(arcSecondToMetersGeotransform[5]) < 31.5);
+    GDALClose(arcSecondToMetersDataset);
+
+    const auto highLatitudeArcSecondOutputPath = tempDir / "arcsecond-to-meters-highlat-output.tif";
+    rastertoolbox::engine::RasterJobRequest highLatitudeArcSecondRequest = request;
+    highLatitudeArcSecondRequest.taskId = "task-arcsecond-to-meters-highlat";
+    highLatitudeArcSecondRequest.inputPath = highLatitudeInputPath.string();
+    highLatitudeArcSecondRequest.outputPath = highLatitudeArcSecondOutputPath.string();
+    highLatitudeArcSecondRequest.preset.targetPixelSizeX = 1.0;
+    highLatitudeArcSecondRequest.preset.targetPixelSizeY = 1.0;
+    highLatitudeArcSecondRequest.preset.targetPixelSizeUnit = std::string(rastertoolbox::config::kTargetPixelSizeUnitArcSeconds);
+    const auto highLatitudeArcSecondResult = service.execute(
+        highLatitudeArcSecondRequest,
+        workerContext,
+        [](const rastertoolbox::dispatcher::ProgressEvent&) {}
+    );
+    assert(highLatitudeArcSecondResult.success);
+    GDALDataset* highLatitudeArcSecondDataset = static_cast<GDALDataset*>(
+        GDALOpenEx(highLatitudeArcSecondOutputPath.string().c_str(), GDAL_OF_RASTER, nullptr, nullptr, nullptr)
+    );
+    assert(highLatitudeArcSecondDataset != nullptr);
+    double highLatitudeArcSecondGeotransformOut[6] = {};
+    assert(highLatitudeArcSecondDataset->GetGeoTransform(highLatitudeArcSecondGeotransformOut) == CE_None);
+    assert(highLatitudeArcSecondGeotransformOut[1] > 30.8);
+    assert(highLatitudeArcSecondGeotransformOut[1] < 31.1);
+    assert(std::abs(highLatitudeArcSecondGeotransformOut[5]) > 61.6);
+    assert(std::abs(highLatitudeArcSecondGeotransformOut[5]) < 62.1);
+    GDALClose(highLatitudeArcSecondDataset);
 
     const auto pngOutputPath = tempDir / "image-output.png";
     const auto pngAuxPath = std::filesystem::path(pngOutputPath.string() + ".aux.xml");
@@ -200,6 +314,10 @@ int main() {
     std::filesystem::remove(outputPath);
     std::filesystem::remove(reprojectedOutputPath);
     std::filesystem::remove(resizedOutputPath);
+    std::filesystem::remove(arcSecondOutputPath);
+    std::filesystem::remove(meterToDegreesOutputPath);
+    std::filesystem::remove(arcSecondToMetersOutputPath);
+    std::filesystem::remove(highLatitudeArcSecondOutputPath);
     std::filesystem::remove(pngOutputPath);
     std::filesystem::remove(pngAuxPath);
     std::filesystem::remove(enviOutputPath);
@@ -207,6 +325,7 @@ int main() {
     std::filesystem::remove(enviAuxPath);
     std::filesystem::remove(canceledOutputPath);
     std::filesystem::remove(inputPath);
+    std::filesystem::remove(highLatitudeInputPath);
     std::filesystem::remove(tempDir);
 
     return 0;

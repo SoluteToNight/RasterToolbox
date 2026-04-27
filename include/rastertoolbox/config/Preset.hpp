@@ -2,13 +2,22 @@
 
 #include <vector>
 #include <string>
+#include <string_view>
 
 #include <nlohmann/json.hpp>
 
 namespace rastertoolbox::config {
 
+inline constexpr std::string_view kTargetPixelSizeUnitTargetCrs{"target-crs-unit"};
+inline constexpr std::string_view kTargetPixelSizeUnitMeters{"meter"};
+inline constexpr std::string_view kTargetPixelSizeUnitKilometers{"kilometer"};
+inline constexpr std::string_view kTargetPixelSizeUnitFeet{"foot"};
+inline constexpr std::string_view kTargetPixelSizeUnitDegrees{"degree"};
+inline constexpr std::string_view kTargetPixelSizeUnitArcMinutes{"arc-minute"};
+inline constexpr std::string_view kTargetPixelSizeUnitArcSeconds{"arc-second"};
+
 struct Preset {
-    int schemaVersion{3};
+    int schemaVersion{4};
     std::string id;
     std::string name;
     std::string outputFormat{"GTiff"};
@@ -27,6 +36,7 @@ struct Preset {
     std::string targetEpsg;
     double targetPixelSizeX{0.0};
     double targetPixelSizeY{0.0};
+    std::string targetPixelSizeUnit{std::string(kTargetPixelSizeUnitTargetCrs)};
     std::string resampling{"nearest"};
 };
 

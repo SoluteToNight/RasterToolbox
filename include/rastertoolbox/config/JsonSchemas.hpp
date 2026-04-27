@@ -8,7 +8,7 @@ namespace rastertoolbox::config {
 
 class JsonSchemas {
 public:
-    static constexpr int kPresetSchemaVersion = 3;
+    static constexpr int kPresetSchemaVersion = 4;
 
     [[nodiscard]] static bool validatePreset(const Preset& preset, std::string& error);
 };

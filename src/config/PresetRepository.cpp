@@ -44,13 +44,20 @@ Preset fromJson(const nlohmann::json& payload) {
     preset.targetEpsg = payload.value("targetEpsg", "");
     preset.targetPixelSizeX = payload.value("targetPixelSizeX", 0.0);
     preset.targetPixelSizeY = payload.value("targetPixelSizeY", 0.0);
+    preset.targetPixelSizeUnit = payload.value(
+        "targetPixelSizeUnit",
+        std::string(kTargetPixelSizeUnitTargetCrs)
+    );
     preset.resampling = payload.value("resampling", "nearest");
+    if (preset.schemaVersion < JsonSchemas::kPresetSchemaVersion) {
+        preset.schemaVersion = JsonSchemas::kPresetSchemaVersion;
+    }
     return preset;
 }
 
 nlohmann::json toJson(const Preset& preset) {
     return {
-        {"schemaVersion", preset.schemaVersion},
+        {"schemaVersion", JsonSchemas::kPresetSchemaVersion},
         {"id", preset.id},
         {"name", preset.name},
         {"outputFormat", preset.outputFormat},
@@ -69,6 +76,7 @@ nlohmann::json toJson(const Preset& preset) {
         {"targetEpsg", preset.targetEpsg},
         {"targetPixelSizeX", preset.targetPixelSizeX},
         {"targetPixelSizeY", preset.targetPixelSizeY},
+        {"targetPixelSizeUnit", preset.targetPixelSizeUnit},
         {"resampling", preset.resampling},
     };
 }

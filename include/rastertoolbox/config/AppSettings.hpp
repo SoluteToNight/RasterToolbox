@@ -9,7 +9,7 @@ struct AppSettings {
     std::string defaultOutputDirectory{"./output"};
     std::string lastOpenedDirectory{"."};
     std::string logLevel{"info"};
-    std::string theme{"dark"};
+    std::string theme{"light"};
 };
 
 } // namespace rastertoolbox::config

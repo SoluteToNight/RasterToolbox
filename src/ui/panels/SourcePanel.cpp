@@ -118,7 +118,7 @@ SourcePanel::SourcePanel(QWidget* parent) : QWidget(parent) {
     sourceTable_->setShowGrid(false);
     sourceTable_->setSelectionBehavior(QAbstractItemView::SelectRows);
     sourceTable_->setSelectionMode(QAbstractItemView::ExtendedSelection);
-    sourceTable_->setMinimumHeight(220);
+    sourceTable_->setMinimumHeight(140);
     layout->addWidget(sourceTable_, 2);
 
     selectionSummaryLabel_ = new QLabel("已选择 0 / 0 个文件", this);
@@ -136,7 +136,7 @@ SourcePanel::SourcePanel(QWidget* parent) : QWidget(parent) {
     previewLabel_ = new QLabel("预览不可用", detailPanel_);
     previewLabel_->setObjectName("sourcePreviewLabel");
     previewLabel_->setProperty("surfaceRole", QStringLiteral("preview"));
-    previewLabel_->setMinimumSize(180, 140);
+    previewLabel_->setMinimumSize(180, 120);
     previewLabel_->setAlignment(Qt::AlignCenter);
     previewLabel_->setWordWrap(true);
     detailLayout->addWidget(previewLabel_);
@@ -159,7 +159,7 @@ SourcePanel::SourcePanel(QWidget* parent) : QWidget(parent) {
     metadataSummaryTable_->setShowGrid(false);
     metadataSummaryTable_->setSelectionMode(QAbstractItemView::NoSelection);
     metadataSummaryTable_->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    metadataSummaryTable_->setMinimumHeight(180);
+    metadataSummaryTable_->setMinimumHeight(120);
     detailLayout->addWidget(metadataSummaryTable_, 1);
 
     metadataProjectionDetails_ = new QPlainTextEdit(detailPanel_);

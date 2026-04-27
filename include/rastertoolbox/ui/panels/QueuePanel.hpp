@@ -32,6 +32,8 @@ public:
 
 private:
     void wireEvents();
+    [[nodiscard]] int rowForTaskId(const std::string& taskId) const;
+    void syncTaskRow(int row, const rastertoolbox::dispatcher::Task& task);
 
     QTableWidget* table_{};
     QPushButton* pauseButton_{};

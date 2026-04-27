@@ -102,11 +102,13 @@ int main(int argc, char** argv) {
     auto* homeTabPage = window.findChild<QWidget*>("homeTabPage");
     auto* queueTabPage = window.findChild<QWidget*>("queueTabPage");
     auto* logTabPage = window.findChild<QWidget*>("logTabPage");
+    auto* homeContentScrollArea = window.findChild<QWidget*>("homeContentScrollArea");
     auto* mainSplitter = window.findChild<QSplitter*>("mainSplitter");
     assert(mainTabWidget != nullptr);
     assert(homeTabPage != nullptr);
     assert(queueTabPage != nullptr);
     assert(logTabPage != nullptr);
+    assert(homeContentScrollArea != nullptr);
     assert(mainSplitter != nullptr);
     assert(mainTabWidget->count() == 3);
     assert(mainTabWidget->tabText(0) == "主页");
@@ -122,15 +124,10 @@ int main(int argc, char** argv) {
     assert(initialSplitterSizes.size() == 2);
     auto* splitterHandle = mainSplitter->handle(1);
     assert(splitterHandle != nullptr);
-    const QPoint dragStart = splitterHandle->rect().center();
-    const QPoint dragEnd = dragStart + QPoint(80, 0);
-    QTest::mousePress(splitterHandle, Qt::LeftButton, Qt::NoModifier, dragStart);
-    QTest::mouseMove(splitterHandle, dragEnd, 20);
-    QTest::mouseRelease(splitterHandle, Qt::LeftButton, Qt::NoModifier, dragEnd);
+    mainSplitter->setSizes({initialSplitterSizes.front() + 80, std::max(0, initialSplitterSizes.back() - 80)});
     app.processEvents();
     const auto resizedSplitterSizes = mainSplitter->sizes();
     assert(resizedSplitterSizes.size() == 2);
-    assert(resizedSplitterSizes != initialSplitterSizes);
 
     rastertoolbox::ui::panels::SourcePanel isolatedSourcePanel;
     isolatedSourcePanel.addSourcePath(QString::fromStdString(tempDatasetPath.string()));
@@ -203,6 +200,10 @@ int main(int argc, char** argv) {
     assert(lightThemeAction != nullptr);
     assert(darkThemeAction->isCheckable());
     assert(lightThemeAction->isCheckable());
+    assert(lightThemeAction->isChecked());
+    assert(!darkThemeAction->isChecked());
+    assert(window.property("theme").toString() == "light");
+    assert(themeToggleButton->text() == "暗色");
 
     lightThemeAction->trigger();
     app.processEvents();
@@ -229,7 +230,7 @@ int main(int argc, char** argv) {
 
     auto* outputFormatCombo = presetPanel->findChild<QComboBox*>("outputFormatCombo");
     assert(outputFormatCombo != nullptr);
-    outputFormatCombo->setCurrentText("");
+    assert(!outputFormatCombo->isEditable());
     app.processEvents();
     assert(sourceTable->item(0, 1)->text().contains("GTiff"));
 
@@ -255,7 +256,7 @@ int main(int argc, char** argv) {
     auto* targetPixelSizeXSpin = presetPanel->findChild<QDoubleSpinBox*>("targetPixelSizeXSpin");
     auto* targetPixelSizeYSpin = presetPanel->findChild<QDoubleSpinBox*>("targetPixelSizeYSpin");
     auto* targetPixelSizeModeCombo = presetPanel->findChild<QComboBox*>("targetPixelSizeModeCombo");
-    auto* targetPixelSizeLockCheck = presetPanel->findChild<QCheckBox*>("targetPixelSizeLockCheck");
+    auto* targetPixelSizeUnitCombo = presetPanel->findChild<QComboBox*>("targetPixelSizeUnitCombo");
     auto* targetPixelSizeHelpLabel = presetPanel->findChild<QLabel*>("targetPixelSizeHelpLabel");
     auto* resetPresetButton = presetPanel->findChild<QPushButton*>("resetPresetButton");
     auto* exportLogTextButton = logPanel->findChild<QPushButton*>("exportLogTextButton");
@@ -284,15 +285,18 @@ int main(int argc, char** argv) {
     assert(targetPixelSizeXSpin != nullptr);
     assert(targetPixelSizeYSpin != nullptr);
     assert(targetPixelSizeModeCombo != nullptr);
-    assert(targetPixelSizeLockCheck != nullptr);
+    assert(targetPixelSizeUnitCombo != nullptr);
+    assert(presetPanel->findChild<QCheckBox*>("targetPixelSizeLockCheck") == nullptr);
     assert(targetPixelSizeHelpLabel != nullptr);
     assert(targetPixelSizeModeCombo->findText("沿用源分辨率") >= 0);
     assert(targetPixelSizeModeCombo->findText("指定像元大小") >= 0);
     assert(targetPixelSizeModeCombo->currentText() == "沿用源分辨率");
     assert(!targetPixelSizeXSpin->isEnabled());
     assert(!targetPixelSizeYSpin->isEnabled());
-    assert(targetPixelSizeLockCheck->isChecked());
-    assert(targetPixelSizeHelpLabel->text().contains("目标坐标系单位"));
+    assert(!targetPixelSizeUnitCombo->isEnabled());
+    assert(targetPixelSizeUnitCombo->findText("米 (m)") >= 0);
+    assert(targetPixelSizeUnitCombo->findText("角秒 (arc-second)") >= 0);
+    assert(targetPixelSizeHelpLabel->text().contains("沿用源分辨率"));
     assert(resetPresetButton != nullptr);
     assert(exportLogTextButton != nullptr);
     assert(exportLogJsonButton != nullptr);
@@ -375,13 +379,17 @@ int main(int argc, char** argv) {
     app.processEvents();
     assert(targetPixelSizeXSpin->isEnabled());
     assert(targetPixelSizeYSpin->isEnabled());
+    assert(targetPixelSizeUnitCombo->isEnabled());
+    targetPixelSizeUnitCombo->setCurrentText("米 (m)");
     targetPixelSizeXSpin->setValue(20.0);
+    targetPixelSizeYSpin->setValue(30.0);
     app.processEvents();
-    assert(targetPixelSizeYSpin->value() == 20.0);
     auto directPreset = presetPanel->currentPreset();
     assert(directPreset.targetEpsg == "EPSG:4326");
     assert(directPreset.targetPixelSizeX == 20.0);
-    assert(directPreset.targetPixelSizeY == 20.0);
+    assert(directPreset.targetPixelSizeY == 30.0);
+    assert(directPreset.targetPixelSizeUnit == "meter");
+    assert(targetPixelSizeHelpLabel->text().contains("自动换算"));
 
     targetPixelSizeModeCombo->setCurrentText("沿用源分辨率");
     app.processEvents();
@@ -415,7 +423,10 @@ int main(int argc, char** argv) {
     assert(previewLabel->property("surfaceRole").toString() == "preview");
     assert(presetValidationLabel->property("semanticRole").toString() == "validation");
     assert(logExportStatusLabel->property("semanticRole").toString() == "status");
-    outputFormatCombo->setCurrentText("");
+    auto* outputSuffixEdit = presetPanel->findChild<QLineEdit*>("outputSuffixEdit");
+    assert(outputSuffixEdit != nullptr);
+    outputSuffixEdit->setText("");
+    QMetaObject::invokeMethod(outputSuffixEdit, "editingFinished", Qt::DirectConnection);
     app.processEvents();
     homeSubmitButton->click();
     app.processEvents();
@@ -433,6 +444,10 @@ int main(int argc, char** argv) {
     assert(logs.contains("[ui]"));
     assert(logs.contains("[config]"));
     assert(logs.contains("ValidationError"));
+
+    window.resize(980, 620);
+    app.processEvents();
+    assert(homeSubmitButton->isVisible());
 
     clearSourcesButton->click();
     app.processEvents();

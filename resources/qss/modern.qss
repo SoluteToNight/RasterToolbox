@@ -105,6 +105,12 @@ QWidget#logTabPage {
     background: #07111f;
 }
 
+QScrollArea#homeContentScrollArea,
+QWidget#homeContentWidget {
+    background: transparent;
+    border: none;
+}
+
 QFrame#appHeaderBar,
 QFrame#statusSummaryBar,
 QFrame#homeActionsBar {
@@ -337,6 +343,10 @@ QComboBox QAbstractItemView {
     border-radius: 8px;
     color: #e6edf7;
     selection-background-color: #1f67d2;
+}
+
+QComboBox#targetPixelSizeUnitCombo {
+    min-width: 160px;
 }
 
 QCheckBox {
