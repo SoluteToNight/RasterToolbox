@@ -363,7 +363,8 @@ void MainWindow::applyTheme(const std::string& theme) {
 
 void MainWindow::loadBuiltInPresets() {
     try {
-        presets_ = presetRepository_.loadBuiltinsFromResource();
+        std::vector<std::string> warnings;
+        presets_ = presetRepository_.loadBuiltinsFromResource(&warnings);
         if (presets_.empty()) {
             throw std::runtime_error("未加载到任何默认预设");
         }
@@ -379,6 +380,18 @@ void MainWindow::loadBuiltInPresets() {
             rastertoolbox::dispatcher::LogLevel::Info,
             "默认预设加载成功"
         );
+        for (const auto& warning : warnings) {
+            appendLog(
+                rastertoolbox::dispatcher::EventSource::Config,
+                rastertoolbox::dispatcher::LogLevel::Warning,
+                warning,
+                {},
+                -1.0,
+                "preset-load",
+                rastertoolbox::common::ErrorClass::ValidationError,
+                "PRESET_NORMALIZED"
+            );
+        }
     } catch (const std::exception& error) {
         appendLog(
             rastertoolbox::dispatcher::EventSource::Config,
@@ -555,6 +568,7 @@ void MainWindow::handleLoadPresetRequested() {
 
     struct PresetLoadResult {
         std::vector<rastertoolbox::config::Preset> presets;
+        std::vector<std::string> warnings;
         std::string error;
     };
 
@@ -592,12 +606,33 @@ void MainWindow::handleLoadPresetRequested() {
             -1.0,
             "preset-load"
         );
+        if (!result.warnings.empty()) {
+            QStringList warningLines;
+            for (const auto& warning : result.warnings) {
+                warningLines.push_back(QString::fromStdString(warning));
+                appendLog(
+                    rastertoolbox::dispatcher::EventSource::Config,
+                    rastertoolbox::dispatcher::LogLevel::Warning,
+                    warning,
+                    {},
+                    -1.0,
+                    "preset-load",
+                    rastertoolbox::common::ErrorClass::ValidationError,
+                    "PRESET_NORMALIZED"
+                );
+            }
+            QMessageBox::warning(
+                this,
+                "预设已自动修正",
+                "已按目标空间参考单位处理以下预设项：\n\n" + warningLines.join('\n')
+            );
+        }
     });
 
     watcher->setFuture(QtConcurrent::run([this, pathString = path.toStdString()]() {
         PresetLoadResult result;
         try {
-            result.presets = presetRepository_.loadFromFile(pathString);
+            result.presets = presetRepository_.loadFromFile(pathString, &result.warnings);
         } catch (const std::exception& error) {
             result.error = error.what();
         }

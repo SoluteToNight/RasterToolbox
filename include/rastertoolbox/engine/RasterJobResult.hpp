@@ -16,6 +16,9 @@ struct RasterJobResult {
     std::string details;
     std::string outputPath;
     std::string partialOutputPath;
+    double resolvedTargetPixelSizeX{0.0};
+    double resolvedTargetPixelSizeY{0.0};
+    std::string resolvedTargetPixelSizeUnit;
     std::uintmax_t bytesWritten{0};
 };
 

@@ -82,6 +82,14 @@ nlohmann::json presetToJson(const rastertoolbox::config::Preset& preset) {
     };
 }
 
+nlohmann::json resolvedPixelSizeToJson(const Task& task) {
+    return {
+        {"x", task.resolvedTargetPixelSizeX},
+        {"y", task.resolvedTargetPixelSizeY},
+        {"unit", task.resolvedTargetPixelSizeUnit},
+    };
+}
+
 nlohmann::json eventToJson(const ProgressEvent& event) {
     return {
         {"timestamp", event.timestamp},
@@ -124,6 +132,7 @@ nlohmann::json buildTaskReport(const Task& task, const std::vector<ProgressEvent
         {"errorCode", task.errorCode},
         {"gdalDetails", task.details},
         {"presetSnapshot", presetToJson(task.presetSnapshot)},
+        {"resolvedTargetPixelSize", resolvedPixelSizeToJson(task)},
         {"progressSummary",
             {
                 {"eventCount", eventPayload.size()},

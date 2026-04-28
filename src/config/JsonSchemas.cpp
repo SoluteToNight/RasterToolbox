@@ -111,6 +111,10 @@ bool isAllowedTargetPixelSizeUnit(const std::string& value) {
 } // namespace
 
 bool JsonSchemas::validatePreset(const Preset& preset, std::string& error) {
+    if (preset.schemaVersion > kPresetSchemaVersion) {
+        error = "schemaVersion 高于当前支持版本";
+        return false;
+    }
     if (trim(preset.outputFormat).empty()) {
         error = "outputFormat 不能为空";
         return false;

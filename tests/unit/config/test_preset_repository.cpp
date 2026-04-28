@@ -66,17 +66,48 @@ int main() {
     legacyStream << legacyPayload.dump(2) << '\n';
     legacyStream.close();
 
-    const auto legacyLoaded = repository.loadFromFile(legacyPath);
+    std::vector<std::string> legacyWarnings;
+    const auto legacyLoaded = repository.loadFromFile(legacyPath, &legacyWarnings);
     assert(legacyLoaded.size() == 1);
     assert(legacyLoaded.front().schemaVersion == rastertoolbox::config::JsonSchemas::kPresetSchemaVersion);
     assert(legacyLoaded.front().targetPixelSizeUnit == rastertoolbox::config::kTargetPixelSizeUnitTargetCrs);
+    assert(legacyWarnings.empty());
+
+    legacyPayload.front()["targetPixelSizeX"] = 30.0;
+    legacyPayload.front()["targetPixelSizeY"] = 30.0;
+    legacyPayload.front()["targetPixelSizeUnit"] = "";
+    std::ofstream emptyUnitStream(legacyPath);
+    emptyUnitStream << legacyPayload.dump(2) << '\n';
+    emptyUnitStream.close();
+
+    std::vector<std::string> emptyUnitWarnings;
+    const auto emptyUnitLoaded = repository.loadFromFile(legacyPath, &emptyUnitWarnings);
+    assert(emptyUnitLoaded.size() == 1);
+    assert(emptyUnitLoaded.front().targetPixelSizeUnit == rastertoolbox::config::kTargetPixelSizeUnitTargetCrs);
+    assert(emptyUnitWarnings.size() == 1);
+    assert(emptyUnitWarnings.front().find("targetPixelSizeUnit 为空") != std::string::npos);
 
     const auto legacyRoundtripPath = tempRoot / "legacy-roundtrip.json";
-    repository.saveToFile(legacyRoundtripPath, legacyLoaded);
+    repository.saveToFile(legacyRoundtripPath, emptyUnitLoaded);
     const auto legacyRoundtripLoaded = repository.loadFromFile(legacyRoundtripPath);
     assert(legacyRoundtripLoaded.size() == 1);
     assert(legacyRoundtripLoaded.front().schemaVersion == rastertoolbox::config::JsonSchemas::kPresetSchemaVersion);
     assert(legacyRoundtripLoaded.front().targetPixelSizeUnit == rastertoolbox::config::kTargetPixelSizeUnitTargetCrs);
+
+    const auto futurePath = tempRoot / "future.json";
+    nlohmann::json futurePayload = legacyPayload;
+    futurePayload.front()["schemaVersion"] = rastertoolbox::config::JsonSchemas::kPresetSchemaVersion + 1;
+    std::ofstream futureStream(futurePath);
+    futureStream << futurePayload.dump(2) << '\n';
+    futureStream.close();
+
+    bool rejectedFutureSchema = false;
+    try {
+        (void)repository.loadFromFile(futurePath);
+    } catch (const std::exception&) {
+        rejectedFutureSchema = true;
+    }
+    assert(rejectedFutureSchema);
 
     std::filesystem::remove_all(tempRoot);
     return 0;

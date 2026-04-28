@@ -310,6 +310,9 @@ bool TaskQueueManager::markCompleted(const std::string& taskId, const rastertool
         }
 
         task.updatedAt = rastertoolbox::common::utcNowIso8601Millis();
+        task.resolvedTargetPixelSizeX = result.resolvedTargetPixelSizeX;
+        task.resolvedTargetPixelSizeY = result.resolvedTargetPixelSizeY;
+        task.resolvedTargetPixelSizeUnit = result.resolvedTargetPixelSizeUnit;
 
         if (result.canceled || task.cancelRequested) {
             task.status = TaskStatus::Canceled;

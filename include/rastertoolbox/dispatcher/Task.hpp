@@ -22,6 +22,9 @@ struct Task {
     std::string outputPath;
     std::string partialOutputPath;
     rastertoolbox::config::Preset presetSnapshot;
+    double resolvedTargetPixelSizeX{0.0};
+    double resolvedTargetPixelSizeY{0.0};
+    std::string resolvedTargetPixelSizeUnit;
     TaskStatus status{TaskStatus::Pending};
     double progress{0.0};
     bool cancelRequested{false};

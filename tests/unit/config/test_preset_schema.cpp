@@ -12,6 +12,10 @@ int main() {
     std::string error;
     assert(rastertoolbox::config::JsonSchemas::validatePreset(preset, error));
 
+    preset.schemaVersion = rastertoolbox::config::JsonSchemas::kPresetSchemaVersion + 1;
+    assert(!rastertoolbox::config::JsonSchemas::validatePreset(preset, error));
+
+    preset.schemaVersion = rastertoolbox::config::JsonSchemas::kPresetSchemaVersion;
     preset.outputFormat.clear();
     assert(!rastertoolbox::config::JsonSchemas::validatePreset(preset, error));
 

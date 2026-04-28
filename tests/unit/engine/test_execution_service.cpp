@@ -116,6 +116,9 @@ int main() {
         [](const rastertoolbox::dispatcher::ProgressEvent&) {}
     );
     assert(resized.success);
+    assert(resized.resolvedTargetPixelSizeX == 15.0);
+    assert(resized.resolvedTargetPixelSizeY == 15.0);
+    assert(resized.resolvedTargetPixelSizeUnit == "target-crs-unit");
     GDALDataset* resizedDataset = static_cast<GDALDataset*>(
         GDALOpenEx(resizedOutputPath.string().c_str(), GDAL_OF_RASTER, nullptr, nullptr, nullptr)
     );
@@ -140,6 +143,7 @@ int main() {
         [](const rastertoolbox::dispatcher::ProgressEvent&) {}
     );
     assert(arcSecondResult.success);
+    assert(arcSecondResult.resolvedTargetPixelSizeUnit == "target-crs-unit");
     GDALDataset* arcSecondDataset = static_cast<GDALDataset*>(
         GDALOpenEx(arcSecondOutputPath.string().c_str(), GDAL_OF_RASTER, nullptr, nullptr, nullptr)
     );
@@ -164,6 +168,7 @@ int main() {
         [](const rastertoolbox::dispatcher::ProgressEvent&) {}
     );
     assert(meterToDegreesResult.success);
+    assert(meterToDegreesResult.resolvedTargetPixelSizeUnit == "target-crs-unit");
     GDALDataset* meterToDegreesDataset = static_cast<GDALDataset*>(
         GDALOpenEx(meterToDegreesOutputPath.string().c_str(), GDAL_OF_RASTER, nullptr, nullptr, nullptr)
     );
@@ -189,6 +194,7 @@ int main() {
         [](const rastertoolbox::dispatcher::ProgressEvent&) {}
     );
     assert(arcSecondToMetersResult.success);
+    assert(arcSecondToMetersResult.resolvedTargetPixelSizeUnit == "target-crs-unit");
     GDALDataset* arcSecondToMetersDataset = static_cast<GDALDataset*>(
         GDALOpenEx(arcSecondToMetersOutputPath.string().c_str(), GDAL_OF_RASTER, nullptr, nullptr, nullptr)
     );
