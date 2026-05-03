@@ -188,6 +188,15 @@ bool JsonSchemas::validatePreset(const Preset& preset, std::string& error) {
         error = "resampling 不受支持";
         return false;
     }
+    if (preset.blockXSize <= 0 || preset.blockYSize <= 0) {
+        error = "blockXSize 与 blockYSize 必须大于 0";
+        return false;
+    }
+    auto isPowerOfTwo = [](int v) { return v > 0 && (v & (v - 1)) == 0; };
+    if (!isPowerOfTwo(preset.blockXSize) || !isPowerOfTwo(preset.blockYSize)) {
+        error = "blockXSize 与 blockYSize 必须为 2 的幂（如 64, 128, 256, 512）";
+        return false;
+    }
     return true;
 }
 

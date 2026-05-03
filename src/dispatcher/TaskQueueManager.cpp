@@ -54,7 +54,34 @@ void resetTaskForQueue(Task& task, const std::string& newTaskId, const bool paus
 
 } // namespace
 
-bool TaskQueueManager::hasOutputConflict(const Task& task, std::string& reason) const {
+bool TaskQueueManager::hasFilesystemConflict(const Task& task, std::string& reason) const {
+    std::error_code error;
+    const bool outputExists = std::filesystem::exists(task.outputPath, error);
+    if (error) {
+        reason = "检查输出文件失败: " + task.outputPath + " (" + error.message() + ")";
+        return true;
+    }
+    if (!task.presetSnapshot.overwriteExisting && outputExists) {
+        reason = "输出文件已存在且未允许覆盖: " + task.outputPath;
+        return true;
+    }
+
+    const std::string temporaryOutputPath = temporaryOutputPathFor(task);
+    error.clear();
+    const bool temporaryExists = std::filesystem::exists(temporaryOutputPath, error);
+    if (error) {
+        reason = "检查临时输出文件失败: " + temporaryOutputPath + " (" + error.message() + ")";
+        return true;
+    }
+    if (temporaryExists) {
+        reason = "临时输出文件已存在: " + temporaryOutputPath;
+        return true;
+    }
+
+    return false;
+}
+
+bool TaskQueueManager::hasInMemoryConflictLocked(const Task& task, std::string& reason) const {
     const std::string temporaryOutputPath = temporaryOutputPathFor(task);
     for (const Task& existing : tasks_) {
         if (existing.outputPath.empty() || existing.id == task.id) {
@@ -72,35 +99,21 @@ bool TaskQueueManager::hasOutputConflict(const Task& task, std::string& reason) 
         }
     }
 
-    std::error_code error;
-    const bool outputExists = std::filesystem::exists(task.outputPath, error);
-    if (error) {
-        reason = "检查输出文件失败: " + task.outputPath + " (" + error.message() + ")";
-        return true;
-    }
-    if (!task.presetSnapshot.overwriteExisting && outputExists) {
-        reason = "输出文件已存在且未允许覆盖: " + task.outputPath;
-        return true;
-    }
-
-    error.clear();
-    const bool temporaryExists = std::filesystem::exists(temporaryOutputPath, error);
-    if (error) {
-        reason = "检查临时输出文件失败: " + temporaryOutputPath + " (" + error.message() + ")";
-        return true;
-    }
-    if (temporaryExists) {
-        reason = "临时输出文件已存在: " + temporaryOutputPath;
-        return true;
-    }
-
     return false;
 }
 
 bool TaskQueueManager::enqueue(Task task, std::string& validationError) {
+    // Filesystem checks run outside the mutex to avoid blocking the main thread
+    // on slow storage. This is intentionally done before the lock — the
+    // in-memory check under the lock catches path collisions with other tasks
+    // in the queue.
+    if (hasFilesystemConflict(task, validationError)) {
+        return false;
+    }
+
     std::scoped_lock lock(mutex_);
 
-    if (hasOutputConflict(task, validationError)) {
+    if (hasInMemoryConflictLocked(task, validationError)) {
         return false;
     }
 
@@ -114,8 +127,13 @@ bool TaskQueueManager::enqueue(Task task, std::string& validationError) {
 }
 
 bool TaskQueueManager::validateForExecution(const Task& task, std::string& reason) const {
+    // Filesystem checks run outside the mutex — same rationale as enqueue().
+    if (hasFilesystemConflict(task, reason)) {
+        return false;
+    }
+
     std::scoped_lock lock(mutex_);
-    return !hasOutputConflict(task, reason);
+    return !hasInMemoryConflictLocked(task, reason);
 }
 
 std::optional<Task> TaskQueueManager::popNextPending() {
@@ -193,7 +211,7 @@ bool TaskQueueManager::retryTask(const std::string& taskId, const std::string& n
 
     Task retryTask = *it;
     resetTaskForQueue(retryTask, newTaskId, paused_);
-    if (hasOutputConflict(retryTask, error)) {
+    if (hasInMemoryConflictLocked(retryTask, error)) {
         return false;
     }
 
@@ -221,7 +239,10 @@ bool TaskQueueManager::duplicateTask(const std::string& taskId, const std::strin
     resetTaskForQueue(duplicateTask, newTaskId, paused_);
     for (int attempt = 1; attempt <= 100; ++attempt) {
         duplicateTask.outputPath = duplicatedOutputPath(*it, attempt);
-        if (!hasOutputConflict(duplicateTask, error)) {
+        // Filesystem check outside the in-memory lock: only check what we can
+        // validate here (in-memory collision). Filesystem existence is
+        // re-checked at execution time via validateForExecution().
+        if (!hasInMemoryConflictLocked(duplicateTask, error)) {
             tasks_.push_back(std::move(duplicateTask));
             error.clear();
             return true;

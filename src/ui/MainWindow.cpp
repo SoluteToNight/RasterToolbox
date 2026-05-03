@@ -1,6 +1,7 @@
 #include "rastertoolbox/ui/MainWindow.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <filesystem>
 #include <map>
 #include <sstream>
@@ -21,7 +22,7 @@
 #include <QScrollArea>
 #include <QScreen>
 #include <QSplitter>
-#include <QTabWidget>
+#include <QStackedWidget>
 #include <QUrl>
 #include <QVBoxLayout>
 #include <QWidget>
@@ -32,9 +33,11 @@
 #include "rastertoolbox/dispatcher/ProgressEvent.hpp"
 #include "rastertoolbox/dispatcher/TaskReportSerializer.hpp"
 #include "rastertoolbox/ui/panels/LogPanel.hpp"
+#include "rastertoolbox/ui/panels/OverviewDetailPanel.hpp"
 #include "rastertoolbox/ui/panels/PresetPanel.hpp"
 #include "rastertoolbox/ui/panels/QueuePanel.hpp"
 #include "rastertoolbox/ui/panels/SourcePanel.hpp"
+#include "rastertoolbox/ui/NavigationPillBar.hpp"
 
 namespace rastertoolbox::ui {
 
@@ -56,18 +59,34 @@ MainWindow::MainWindow()
     : taskDispatcher_(executionService_, this) {
     setObjectName("mainWindow");
     setWindowTitle("RasterToolbox");
+
+    // Determine window size adaptively based on available screen geometry.
+    // All values use logical (device-independent) pixels — Qt6 handles
+    // physical-pixel mapping via the rounding policy set in Application.
     if (qApp != nullptr && qApp->primaryScreen() != nullptr) {
         const QRect available = qApp->primaryScreen()->availableGeometry();
-        const int targetWidth = available.width() < 960
+        const qreal dpr = qApp->primaryScreen()->devicePixelRatio();
+
+        // Scale thresholds by DPR so minimums remain meaningful on high-DPI
+        const int minWidth = static_cast<int>(640 * dpr);
+        const int minHeight = static_cast<int>(480 * dpr);
+        const int maxWidth = static_cast<int>(1800 * dpr);
+        const int maxHeight = static_cast<int>(1080 * dpr);
+
+        const int targetWidth = available.width() < minWidth
             ? available.width()
-            : std::min(1500, static_cast<int>(available.width() * 0.92));
-        const int targetHeight = available.height() < 680
+            : std::min(maxWidth, static_cast<int>(available.width() * 0.92));
+        const int targetHeight = available.height() < minHeight
             ? available.height()
-            : std::min(900, static_cast<int>(available.height() * 0.88));
+            : std::min(maxHeight, static_cast<int>(available.height() * 0.88));
         resize(targetWidth, targetHeight);
     } else {
-        resize(1500, 900);
+        resize(1200, 800);
     }
+
+    const qreal dpr = (qApp != nullptr && qApp->primaryScreen() != nullptr)
+        ? qApp->primaryScreen()->devicePixelRatio()
+        : 1.0;
 
     auto* root = new QWidget(this);
     root->setObjectName("mainRoot");
@@ -76,93 +95,75 @@ MainWindow::MainWindow()
     rootLayout->setSpacing(12);
     rootLayout->addWidget(setupHeader());
 
-    mainTabWidget_ = new QTabWidget(root);
-    mainTabWidget_->setObjectName("mainTabWidget");
+    navigationPillBar_ = new NavigationPillBar(root);
+    rootLayout->addWidget(navigationPillBar_);
 
-    auto* homeTabPage = new QWidget(mainTabWidget_);
-    homeTabPage->setObjectName("homeTabPage");
-    auto* homeLayout = new QVBoxLayout(homeTabPage);
-    homeLayout->setContentsMargins(0, 0, 0, 0);
-    homeLayout->setSpacing(12);
+    contentStack_ = new QStackedWidget(root);
+    contentStack_->setObjectName("contentStack");
 
-    auto* homeContentScrollArea = new QScrollArea(homeTabPage);
-    homeContentScrollArea->setObjectName("homeContentScrollArea");
-    homeContentScrollArea->setWidgetResizable(true);
-    homeContentScrollArea->setFrameShape(QFrame::NoFrame);
-    homeContentScrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    auto* homeContentWidget = new QWidget(homeContentScrollArea);
-    homeContentWidget->setObjectName("homeContentWidget");
-    auto* homeContentLayout = new QVBoxLayout(homeContentWidget);
-    homeContentLayout->setContentsMargins(0, 0, 0, 0);
-    homeContentLayout->setSpacing(0);
+    // ── [0] 概览 page ──────────────────────────────────────────────
+    overviewPage_ = new QWidget();
+    overviewPage_->setObjectName("overviewPage");
+    auto* overviewLayout = new QVBoxLayout(overviewPage_);
+    overviewLayout->setContentsMargins(0, 0, 0, 0);
 
-    auto* splitter = new QSplitter(homeContentWidget);
-    splitter->setObjectName("mainSplitter");
-    splitter->setHandleWidth(10);
-    splitter->setChildrenCollapsible(false);
+    auto* overviewSplitter = new QSplitter(Qt::Horizontal, overviewPage_);
+    overviewSplitter->setHandleWidth(static_cast<int>(10 * dpr));
+    overviewSplitter->setChildrenCollapsible(false);
 
-    sourcePanel_ = new panels::SourcePanel(splitter);
-    presetPanel_ = new panels::PresetPanel(splitter);
-    splitter->addWidget(sourcePanel_);
-    splitter->addWidget(presetPanel_);
-    splitter->setStretchFactor(0, 5);
-    splitter->setStretchFactor(1, 6);
-    splitter->setSizes({520, 620});
-    homeContentLayout->addWidget(splitter);
-    homeContentLayout->addStretch(1);
-    homeContentScrollArea->setWidget(homeContentWidget);
-    homeLayout->addWidget(homeContentScrollArea, 1);
+    sourcePanel_ = new panels::SourcePanel(overviewSplitter);
+    overviewDetailPanel_ = new panels::OverviewDetailPanel(overviewSplitter);
 
-    auto* homeActionsBar = new QFrame(homeTabPage);
-    homeActionsBar->setObjectName("homeActionsBar");
-    homeActionsBar->setProperty("surfaceRole", QStringLiteral("homeActions"));
-    auto* homeActionsLayout = new QHBoxLayout(homeActionsBar);
-    homeActionsLayout->setContentsMargins(12, 8, 12, 8);
-    homeActionsLayout->setSpacing(10);
-    auto* homeActionsLabel = new QLabel("任务创建", homeActionsBar);
-    homeActionsLabel->setObjectName("homeActionsLabel");
-    homeActionsLabel->setProperty("semanticRole", QStringLiteral("sectionTitle"));
-    homeActionsLayout->addWidget(homeActionsLabel);
-    homeActionsLayout->addStretch(1);
-    viewQueueButton_ = new QPushButton("查看队列", homeActionsBar);
-    viewQueueButton_->setObjectName("homeViewQueueButton");
-    viewQueueButton_->setProperty("buttonRole", QStringLiteral("secondary"));
-    homeActionsLayout->addWidget(viewQueueButton_);
-    viewLogButton_ = new QPushButton("查看日志", homeActionsBar);
-    viewLogButton_->setObjectName("homeViewLogButton");
-    viewLogButton_->setProperty("buttonRole", QStringLiteral("secondary"));
-    homeActionsLayout->addWidget(viewLogButton_);
-    homeSubmitButton_ = new QPushButton("提交任务", homeActionsBar);
-    homeSubmitButton_->setObjectName("homeSubmitButton");
-    homeSubmitButton_->setProperty("buttonRole", QStringLiteral("primary"));
-    homeActionsLayout->addWidget(homeSubmitButton_);
-    homeLayout->addWidget(homeActionsBar);
+    overviewSplitter->addWidget(sourcePanel_);
+    overviewSplitter->addWidget(overviewDetailPanel_);
+    overviewSplitter->setStretchFactor(0, 4);
+    overviewSplitter->setStretchFactor(1, 5);
+    overviewSplitter->setSizes({
+        static_cast<int>(520 * dpr),
+        static_cast<int>(600 * dpr)
+    });
 
-    auto* queueTabPage = new QWidget(mainTabWidget_);
-    queueTabPage->setObjectName("queueTabPage");
-    auto* queueLayout = new QVBoxLayout(queueTabPage);
+    overviewLayout->addWidget(overviewSplitter);
+    sourcePanel_->setDetailPanelVisible(false);
+    contentStack_->addWidget(overviewPage_);
+
+    // ── [1] 处理设置 page ──────────────────────────────────────────
+    presetPage_ = new QWidget();
+    presetPage_->setObjectName("presetPage");
+    auto* presetPageLayout = new QVBoxLayout(presetPage_);
+    presetPageLayout->setContentsMargins(0, 0, 0, 0);
+    presetPanel_ = new panels::PresetPanel(presetPage_);
+    presetPageLayout->addWidget(presetPanel_);
+    contentStack_->addWidget(presetPage_);
+
+    // ── [2] 队列 page ──────────────────────────────────────────────
+    auto* queuePage = new QWidget();
+    queuePage->setObjectName("queuePage");
+    auto* queueLayout = new QVBoxLayout(queuePage);
     queueLayout->setContentsMargins(0, 0, 0, 0);
-    queuePanel_ = new panels::QueuePanel(queueTabPage);
+    queuePanel_ = new panels::QueuePanel(queuePage);
     queueLayout->addWidget(queuePanel_);
+    contentStack_->addWidget(queuePage);
 
-    auto* logTabPage = new QWidget(mainTabWidget_);
-    logTabPage->setObjectName("logTabPage");
-    auto* logLayout = new QVBoxLayout(logTabPage);
+    // ── [3] 日志 page ──────────────────────────────────────────────
+    auto* logPage = new QWidget();
+    logPage->setObjectName("logPage");
+    auto* logLayout = new QVBoxLayout(logPage);
     logLayout->setContentsMargins(0, 0, 0, 0);
-    logPanel_ = new panels::LogPanel(logTabPage);
+    logPanel_ = new panels::LogPanel(logPage);
     logLayout->addWidget(logPanel_);
+    contentStack_->addWidget(logPage);
 
-    mainTabWidget_->addTab(homeTabPage, "主页");
-    mainTabWidget_->addTab(queueTabPage, "队列");
-    mainTabWidget_->addTab(logTabPage, "日志");
-
-    rootLayout->addWidget(mainTabWidget_, 1);
+    rootLayout->addWidget(contentStack_, 1);
     rootLayout->addWidget(setupStatusBar());
     setCentralWidget(root);
 
     sourcePanel_->setOnImportRequested([this]() { handleImportRequested(); });
     sourcePanel_->setOnClearRequested([this]() { handleClearSourcesRequested(); });
     sourcePanel_->setOnSourceSelected([this](const std::string& path) { handleSourceSelected(path); });
+    sourcePanel_->setOnRemoveSelectedRequested([this](std::vector<std::string> paths) {
+        handleRemoveSourcesRequested(std::move(paths));
+    });
 
     presetPanel_->setOnPresetChanged([this](const rastertoolbox::config::Preset& preset) {
         handlePresetChanged(preset);
@@ -173,6 +174,9 @@ MainWindow::MainWindow()
     });
     presetPanel_->setOnBrowseOutputDirectoryRequested([this]() { handleOutputDirectoryBrowseRequested(); });
     presetPanel_->setOnResetRequested([this]() { handleResetPresetRequested(); });
+    presetPanel_->setOnSaveToAppRequested([this](const rastertoolbox::config::Preset& preset) {
+        handleSavePresetToAppRequested(preset);
+    });
 
     queuePanel_->setOnPauseRequested([this]() { handlePauseRequested(); });
     queuePanel_->setOnResumeRequested([this]() { handleResumeRequested(); });
@@ -188,12 +192,27 @@ MainWindow::MainWindow()
     });
     queuePanel_->setOnCancelRequested([this](const std::string& taskId) { handleCancelRequested(taskId); });
 
-    connect(homeSubmitButton_, &QPushButton::clicked, this, [this]() { handleAddTaskRequested(); });
-    connect(viewQueueButton_, &QPushButton::clicked, this, [this]() {
-        mainTabWidget_->setCurrentIndex(1);
+    // Pill navigation <-> Stacked widget sync
+    connect(navigationPillBar_, &NavigationPillBar::pillClicked, contentStack_, [this](int index) {
+        contentStack_->setCurrentIndex(index);
     });
-    connect(viewLogButton_, &QPushButton::clicked, this, [this]() {
-        mainTabWidget_->setCurrentIndex(2);
+
+    // OverviewDetailPanel signals -> handlers
+    connect(overviewDetailPanel_, &panels::OverviewDetailPanel::addToQueueClicked, this, [this]() {
+        handleAddTaskRequested();
+    });
+    connect(overviewDetailPanel_, &panels::OverviewDetailPanel::submitTaskClicked, this, [this]() {
+        handleAddTaskRequested();
+    });
+    connect(overviewDetailPanel_, &panels::OverviewDetailPanel::editPresetClicked, this, [this]() {
+        contentStack_->setCurrentIndex(1);
+        navigationPillBar_->setActiveIndex(1);
+    });
+    connect(overviewDetailPanel_, &panels::OverviewDetailPanel::presetQuickChanged, this, [this](const config::Preset& preset) {
+        handlePresetChanged(preset);
+    });
+    connect(overviewDetailPanel_, &panels::OverviewDetailPanel::browseOutputDirectoryClicked, this, [this]() {
+        handleOutputDirectoryBrowseRequested();
     });
 
     taskDispatcher_.setMaxConcurrentTasks(appSettings_.maxConcurrentTasks);
@@ -202,6 +221,16 @@ MainWindow::MainWindow()
     });
     taskDispatcher_.setSnapshotSink([this](const std::vector<rastertoolbox::dispatcher::Task>& tasks) {
         refreshQueueView(tasks);
+
+        // Update queue pill badge count
+        int pendingAndRunning = 0;
+        for (const auto& t : tasks) {
+            if (t.status == rastertoolbox::dispatcher::TaskStatus::Pending ||
+                t.status == rastertoolbox::dispatcher::TaskStatus::Running) {
+                ++pendingAndRunning;
+            }
+        }
+        navigationPillBar_->setBadgeCount(2, pendingAndRunning);
     });
 
     setupThemeMenu();
@@ -290,25 +319,59 @@ QWidget* MainWindow::setupStatusBar() {
     statusBar->setProperty("surfaceRole", QStringLiteral("statusBar"));
     auto* layout = new QHBoxLayout(statusBar);
     layout->setContentsMargins(12, 6, 12, 6);
-    layout->setSpacing(14);
+    layout->setSpacing(10);
 
+    const qreal dpr = (qApp != nullptr && qApp->primaryScreen() != nullptr)
+        ? qApp->primaryScreen()->devicePixelRatio()
+        : 1.0;
+
+    // Status counts
     statusSuccessCountLabel_ = new QLabel("成功: 0", statusBar);
     statusSuccessCountLabel_->setObjectName("statusSuccessCountLabel");
+    statusSuccessCountLabel_->setProperty("semanticRole", QStringLiteral("statusMetric"));
+    layout->addWidget(statusSuccessCountLabel_);
+
     statusRunningCountLabel_ = new QLabel("运行中: 0", statusBar);
     statusRunningCountLabel_->setObjectName("statusRunningCountLabel");
+    statusRunningCountLabel_->setProperty("semanticRole", QStringLiteral("statusMetric"));
+    layout->addWidget(statusRunningCountLabel_);
+
     statusPendingCountLabel_ = new QLabel("等待中: 0", statusBar);
     statusPendingCountLabel_->setObjectName("statusPendingCountLabel");
+    statusPendingCountLabel_->setProperty("semanticRole", QStringLiteral("statusMetric"));
+    layout->addWidget(statusPendingCountLabel_);
+
+    // Separator
+    auto* separator = new QFrame(statusBar);
+    separator->setObjectName("statusSeparator");
+    separator->setFrameShape(QFrame::VLine);
+    separator->setFrameShadow(QFrame::Sunken);
+    separator->setFixedWidth(static_cast<int>(1 * dpr));
+    layout->addWidget(separator);
+
+    // Current preset info
     statusPresetLabel_ = new QLabel("当前预设: -", statusBar);
     statusPresetLabel_->setObjectName("statusPresetLabel");
+    statusPresetLabel_->setProperty("semanticRole", QStringLiteral("statusInfo"));
+    layout->addWidget(statusPresetLabel_, 1);
+
+    // Output directory
     statusOutputDirectoryLabel_ = new QLabel("输出: -", statusBar);
     statusOutputDirectoryLabel_->setObjectName("statusOutputDirectoryLabel");
-
-    layout->addWidget(statusSuccessCountLabel_);
-    layout->addWidget(statusRunningCountLabel_);
-    layout->addWidget(statusPendingCountLabel_);
-    layout->addSpacing(12);
-    layout->addWidget(statusPresetLabel_, 1);
+    statusOutputDirectoryLabel_->setProperty("semanticRole", QStringLiteral("statusInfo"));
     layout->addWidget(statusOutputDirectoryLabel_, 1);
+
+    // Ready indicator
+    auto* readyDot = new QLabel(statusBar);
+    readyDot->setObjectName("readyIndicatorDot");
+    readyDot->setProperty("surfaceRole", QStringLiteral("readyIndicator"));
+    const int dotSize = static_cast<int>(8 * dpr);
+    readyDot->setFixedSize(dotSize, dotSize);
+    layout->addWidget(readyDot);
+
+    auto* readyLabel = new QLabel("准备就绪", statusBar);
+    readyLabel->setObjectName("readyIndicatorLabel");
+    layout->addWidget(readyLabel);
 
     return statusBar;
 }
@@ -374,6 +437,38 @@ void MainWindow::loadBuiltInPresets() {
         presetValidationError_.clear();
         presetPanel_->setPresets(presets_);
         presetPanel_->setCurrentPresetById(currentPreset_.id);
+        overviewDetailPanel_->setPresets(presets_);
+        overviewDetailPanel_->setCurrentPresetById(currentPreset_.id);
+        overviewDetailPanel_->setOutputDirectory(QString::fromStdString(currentPreset_.outputDirectory));
+
+        // Load user-saved presets from QSettings
+        try {
+            std::vector<std::string> userWarnings;
+            auto userPresets = presetRepository_.loadFromUserConfig(&userWarnings);
+            if (!userPresets.empty()) {
+                presets_.insert(presets_.end(), userPresets.begin(), userPresets.end());
+                presetPanel_->setPresets(presets_);
+                overviewDetailPanel_->setPresets(presets_);
+            }
+            for (const auto& warning : userWarnings) {
+                appendLog(
+                    rastertoolbox::dispatcher::EventSource::Config,
+                    rastertoolbox::dispatcher::LogLevel::Warning,
+                    warning,
+                    {},
+                    -1.0,
+                    "preset-load",
+                    rastertoolbox::common::ErrorClass::ValidationError,
+                    "PRESET_NORMALIZED"
+                );
+            }
+        } catch (const std::exception& error) {
+            appendLog(
+                rastertoolbox::dispatcher::EventSource::Config,
+                rastertoolbox::dispatcher::LogLevel::Warning,
+                std::string("加载用户预设失败: ") + error.what()
+            );
+        }
 
         appendLog(
             rastertoolbox::dispatcher::EventSource::Config,
@@ -448,10 +543,11 @@ void MainWindow::handleSourceSelected(const std::string& path) {
         result.path = path;
 
         rastertoolbox::engine::DatasetReader reader;
-        result.metadata = reader.readMetadata(path, result.metadataError);
-        if (result.metadata.has_value()) {
-            result.preview = reader.readPreview(path, 256, result.previewError);
-        }
+        const auto all = reader.readAll(path, 256);
+        result.metadata = all.metadata;
+        result.preview = all.preview;
+        result.metadataError = all.metadataError;
+        result.previewError = all.previewError;
         return result;
     }));
 }
@@ -463,13 +559,17 @@ void MainWindow::handleSourceDetailFinished(QFutureWatcher<SourceDetailResult>* 
         sourceDetailWatcher_ = nullptr;
     }
 
-    if (result.requestId != activeSourceDetailRequestId_ || result.path != activeSourceDetailPath_) {
-        return;
-    }
+    // Only the latest request drives the detail panel + preview display.
+    // All requests update the source table row and metadata cache so that
+    // every imported file gets its metadata populated immediately.
+    const bool isLatest = (result.requestId == activeSourceDetailRequestId_
+        && result.path == activeSourceDetailPath_);
 
     if (!result.metadata.has_value()) {
-        sourcePanel_->showSourceError(QString::fromStdString("导入失败: " + result.metadataError));
-        sourcePanel_->clearPreview("预览不可用");
+        if (isLatest) {
+            sourcePanel_->showSourceError(QString::fromStdString("导入失败: " + result.metadataError));
+            sourcePanel_->clearPreview("预览不可用");
+        }
         appendLog(
             rastertoolbox::dispatcher::EventSource::Engine,
             rastertoolbox::dispatcher::LogLevel::Error,
@@ -486,9 +586,17 @@ void MainWindow::handleSourceDetailFinished(QFutureWatcher<SourceDetailResult>* 
 
     auto datasetInfo = *result.metadata;
     datasetInfo.suggestedOutputDirectory = currentPreset_.outputDirectory;
+
+    // Always cache and update the source table for this file
     sourceMetadataCache_[result.path] = datasetInfo;
-    sourcePanel_->setMetadata(datasetInfo);
+    sourcePanel_->setSourceMetadata(result.path, datasetInfo);
     sourcePanel_->setBatchSummary(QString::fromStdString(buildBatchSummary()));
+
+    // Detail panel and preview only for the most recent selection
+    if (isLatest) {
+        sourcePanel_->setMetadata(datasetInfo);
+        overviewDetailPanel_->setMetadata(datasetInfo);
+    }
 
     if (result.preview.has_value()) {
         QImage image(
@@ -497,11 +605,16 @@ void MainWindow::handleSourceDetailFinished(QFutureWatcher<SourceDetailResult>* 
             result.preview->height,
             QImage::Format_RGBA8888
         );
-        sourcePanel_->setPreview(image.copy());
+        if (isLatest) {
+            sourcePanel_->setPreview(image.copy());
+            overviewDetailPanel_->setPreview(image.copy());
+        }
     } else {
-        sourcePanel_->showPreviewError(QString::fromStdString(
-            result.previewError.empty() ? "预览生成失败" : "预览生成失败: " + result.previewError
-        ));
+        if (isLatest) {
+            sourcePanel_->showPreviewError(QString::fromStdString(
+                result.previewError.empty() ? "预览生成失败" : "预览生成失败: " + result.previewError
+            ));
+        }
         if (!result.previewError.empty()) {
             appendLog(
                 rastertoolbox::dispatcher::EventSource::Engine,
@@ -514,6 +627,10 @@ void MainWindow::handleSourceDetailFinished(QFutureWatcher<SourceDetailResult>* 
                 "PREVIEW_FAILED",
                 result.previewError
             );
+        }
+        if (isLatest) {
+            overviewDetailPanel_->clearPreview(
+                QString::fromStdString(result.previewError.empty() ? "预览不可用" : "预览不可用"));
         }
     }
 
@@ -553,6 +670,7 @@ void MainWindow::handlePresetChanged(const rastertoolbox::config::Preset& preset
     presetValidationError_.clear();
     presetPanel_->showValidationMessage("预设校验通过");
     refreshStatusSummary();
+    overviewDetailPanel_->setOutputDirectory(QString::fromStdString(currentPreset_.outputDirectory));
 }
 
 void MainWindow::handleLoadPresetRequested() {
@@ -706,6 +824,78 @@ void MainWindow::handleSavePresetRequested(const rastertoolbox::config::Preset& 
     }));
 }
 
+void MainWindow::handleSavePresetToAppRequested(const rastertoolbox::config::Preset& preset) {
+    std::string validationError;
+    if (!rastertoolbox::config::JsonSchemas::validatePreset(preset, validationError)) {
+        presetPanel_->showValidationMessage(QString::fromStdString(validationError));
+        appendLog(
+            rastertoolbox::dispatcher::EventSource::Config,
+            rastertoolbox::dispatcher::LogLevel::Warning,
+            "保存预设前校验失败: " + validationError,
+            {},
+            -1.0,
+            "preset-save",
+            rastertoolbox::common::ErrorClass::ValidationError,
+            "VALIDATION_FAILED"
+        );
+        return;
+    }
+
+    // Generate a unique id if not already set
+    auto presetToSave = preset;
+    if (presetToSave.id.empty()) {
+        presetToSave.id = presetToSave.name.empty() ? "user-preset" : presetToSave.name;
+        // Make id safe: lowercase, replace spaces with hyphens
+        std::transform(presetToSave.id.begin(), presetToSave.id.end(), presetToSave.id.begin(),
+            [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        std::replace(presetToSave.id.begin(), presetToSave.id.end(), ' ', '-');
+    }
+
+    try {
+        // Load existing user presets
+        auto userPresets = presetRepository_.loadFromUserConfig();
+        // Remove existing preset with same id (overwrite)
+        userPresets.erase(
+            std::remove_if(userPresets.begin(), userPresets.end(),
+                [&presetToSave](const decltype(presetToSave)& p) { return p.id == presetToSave.id; }),
+            userPresets.end()
+        );
+        // Append the new one
+        userPresets.push_back(std::move(presetToSave));
+        presetRepository_.saveToUserConfig(userPresets);
+
+        // Refresh in-memory list: keep builtins, replace user portion
+        auto builtins = presetRepository_.loadBuiltinsFromResource();
+        auto updatedUserPresets = presetRepository_.loadFromUserConfig();
+        presets_ = std::move(builtins);
+        presets_.insert(presets_.end(), updatedUserPresets.begin(), updatedUserPresets.end());
+        presetPanel_->setPresets(presets_);
+        overviewDetailPanel_->setPresets(presets_);
+
+        presetPanel_->showValidationMessage("预设已保存");
+        appendLog(
+            rastertoolbox::dispatcher::EventSource::Config,
+            rastertoolbox::dispatcher::LogLevel::Info,
+            "用户预设已保存: " + presetToSave.name,
+            {},
+            -1.0,
+            "preset-save"
+        );
+    } catch (const std::exception& error) {
+        presetPanel_->showValidationMessage(QString::fromStdString(std::string("保存失败: ") + error.what()));
+        appendLog(
+            rastertoolbox::dispatcher::EventSource::Config,
+            rastertoolbox::dispatcher::LogLevel::Error,
+            std::string("保存用户预设失败: ") + error.what(),
+            {},
+            -1.0,
+            "preset-save",
+            rastertoolbox::common::ErrorClass::InternalError,
+            "PRESET_SAVE_FAILED"
+        );
+    }
+}
+
 void MainWindow::handleClearSourcesRequested() {
     activeSourceDetailRequestId_ = ++sourceDetailRequestCounter_;
     activeSourceDetailPath_.clear();
@@ -718,6 +908,37 @@ void MainWindow::handleClearSourcesRequested() {
         {},
         -1.0,
         "source-clear"
+    );
+}
+
+void MainWindow::handleRemoveSourcesRequested(std::vector<std::string> paths)
+{
+    if (paths.empty()) {
+        return;
+    }
+
+    // Clear active source tracking if the current path is being removed
+    const auto activeIt = std::find(paths.begin(), paths.end(), activeSourceDetailPath_);
+    if (activeIt != paths.end()) {
+        activeSourceDetailRequestId_ = ++sourceDetailRequestCounter_;
+        activeSourceDetailPath_.clear();
+    }
+
+    // Remove from metadata cache
+    for (const auto& path : paths) {
+        sourceMetadataCache_.erase(path);
+    }
+
+    sourcePanel_->removeSourcePaths(paths);
+    sourcePanel_->setBatchSummary(QString::fromStdString(buildBatchSummary()));
+
+    appendLog(
+        rastertoolbox::dispatcher::EventSource::Ui,
+        rastertoolbox::dispatcher::LogLevel::Info,
+        "已从列表中移除 " + std::to_string(paths.size()) + " 个源文件",
+        {},
+        -1.0,
+        "source-remove"
     );
 }
 
@@ -820,9 +1041,11 @@ void MainWindow::handleAddTaskRequested() {
         tasks.push_back(std::move(task));
     }
 
-    homeSubmitButton_->setEnabled(false);
+    overviewDetailPanel_->setSubmitEnabled(false);
+    overviewDetailPanel_->setAddToQueueEnabled(false);
     taskDispatcher_.enqueueTasksAsync(std::move(tasks), [this](std::vector<rastertoolbox::dispatcher::TaskDispatcherService::EnqueueResult> results) {
-        homeSubmitButton_->setEnabled(true);
+        overviewDetailPanel_->setSubmitEnabled(true);
+        overviewDetailPanel_->setAddToQueueEnabled(true);
         for (const auto& result : results) {
             if (!result.success) {
                 appendLog(

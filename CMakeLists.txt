@@ -24,10 +24,19 @@ add_executable(rastertoolbox
     src/app/main.cpp
     src/app/Application.cpp
     src/ui/MainWindow.cpp
+    include/rastertoolbox/ui/MainWindow.hpp
+    src/ui/NavigationPillBar.cpp
+    include/rastertoolbox/ui/NavigationPillBar.hpp
     src/ui/panels/SourcePanel.cpp
+    include/rastertoolbox/ui/panels/SourcePanel.hpp
     src/ui/panels/PresetPanel.cpp
+    include/rastertoolbox/ui/panels/PresetPanel.hpp
     src/ui/panels/QueuePanel.cpp
+    include/rastertoolbox/ui/panels/QueuePanel.hpp
     src/ui/panels/LogPanel.cpp
+    include/rastertoolbox/ui/panels/LogPanel.hpp
+    src/ui/panels/OverviewDetailPanel.cpp
+    include/rastertoolbox/ui/panels/OverviewDetailPanel.hpp
     src/dispatcher/TaskQueueManager.cpp
     src/dispatcher/TaskReportSerializer.cpp
     src/dispatcher/WorkerContext.cpp

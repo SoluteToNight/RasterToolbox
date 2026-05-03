@@ -32,6 +32,7 @@ public:
     void setOnSaveRequested(std::function<void(const rastertoolbox::config::Preset&)> callback);
     void setOnBrowseOutputDirectoryRequested(std::function<void()> callback);
     void setOnResetRequested(std::function<void()> callback);
+    void setOnSaveToAppRequested(std::function<void(const rastertoolbox::config::Preset&)> callback);
 
     void showValidationMessage(const QString& message);
     void resetCurrentPresetForm();
@@ -75,9 +76,11 @@ private:
     QLabel* targetPixelSizeHelpLabel_{};
     QComboBox* resamplingCombo_{};
     QCheckBox* overwriteCheck_{};
+    QSpinBox* blockSizeSpin_{};
     QPlainTextEdit* gdalOptionsEdit_{};
     QPushButton* loadButton_{};
     QPushButton* saveButton_{};
+    QPushButton* saveToAppButton_{};
     QPushButton* browseOutputDirectoryButton_{};
     QPushButton* resetButton_{};
     QLabel* validationLabel_{};
@@ -87,6 +90,7 @@ private:
     std::function<void(const rastertoolbox::config::Preset&)> onSaveRequested_;
     std::function<void()> onBrowseOutputDirectoryRequested_;
     std::function<void()> onResetRequested_;
+    std::function<void(const rastertoolbox::config::Preset&)> onSaveToAppRequested_;
 };
 
 } // namespace rastertoolbox::ui::panels

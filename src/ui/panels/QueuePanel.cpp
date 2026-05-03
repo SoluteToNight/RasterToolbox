@@ -6,6 +6,7 @@
 #include <QAbstractItemView>
 #include <QHeaderView>
 #include <QHBoxLayout>
+#include <QMenu>
 #include <QPushButton>
 #include <QSignalBlocker>
 #include <QTableWidget>
@@ -269,6 +270,7 @@ QueuePanel::QueuePanel(QWidget* parent) : QWidget(parent) {
     table_->setShowGrid(false);
     table_->setSelectionBehavior(QAbstractItemView::SelectRows);
     table_->setSelectionMode(QAbstractItemView::SingleSelection);
+    table_->setContextMenuPolicy(Qt::CustomContextMenu);
     layout->addWidget(table_);
 
     wireEvents();
@@ -352,6 +354,8 @@ void QueuePanel::wireEvents() {
             onCancelRequested_(taskId);
         }
     });
+
+    connect(table_, &QTableWidget::customContextMenuRequested, this, &QueuePanel::showContextMenu);
 }
 
 void QueuePanel::setTasks(const std::vector<rastertoolbox::dispatcher::Task>& tasks) {
@@ -459,6 +463,73 @@ void QueuePanel::setOnExportTaskReportRequested(std::function<void(const std::st
 
 void QueuePanel::setOnCancelRequested(std::function<void(const std::string&)> callback) {
     onCancelRequested_ = std::move(callback);
+}
+
+void QueuePanel::showContextMenu(const QPoint& position)
+{
+    const int rowCount = table_->rowCount();
+    const auto taskId = selectedTaskId();
+    const bool hasSelection = !taskId.empty();
+
+    QMenu menu(table_);
+
+    auto* pauseAction = menu.addAction("暂停派发");
+    pauseAction->setEnabled(true);
+
+    auto* resumeAction = menu.addAction("恢复派发");
+    resumeAction->setEnabled(true);
+
+    menu.addSeparator();
+
+    auto* retryAction = menu.addAction("重试任务");
+    retryAction->setEnabled(hasSelection);
+
+    auto* duplicateAction = menu.addAction("复制任务");
+    duplicateAction->setEnabled(hasSelection);
+
+    auto* openOutputAction = menu.addAction("打开输出目录");
+    openOutputAction->setEnabled(hasSelection);
+
+    auto* exportAction = menu.addAction("导出任务报告");
+    exportAction->setEnabled(hasSelection);
+
+    menu.addSeparator();
+
+    auto* cancelAction = menu.addAction("取消选中任务");
+    cancelAction->setEnabled(hasSelection);
+
+    auto* removeAction = menu.addAction("移除任务");
+    removeAction->setEnabled(hasSelection);
+
+    menu.addSeparator();
+
+    auto* clearFinishedAction = menu.addAction("清理已完成任务");
+    clearFinishedAction->setEnabled(rowCount > 0);
+
+    QAction* triggered = menu.exec(table_->viewport()->mapToGlobal(position));
+    if (triggered == nullptr) {
+        return;
+    }
+
+    if (triggered == pauseAction && onPauseRequested_) {
+        onPauseRequested_();
+    } else if (triggered == resumeAction && onResumeRequested_) {
+        onResumeRequested_();
+    } else if (triggered == retryAction && onRetryRequested_) {
+        onRetryRequested_(taskId);
+    } else if (triggered == duplicateAction && onDuplicateRequested_) {
+        onDuplicateRequested_(taskId);
+    } else if (triggered == openOutputAction && onOpenOutputFolderRequested_) {
+        onOpenOutputFolderRequested_(taskId);
+    } else if (triggered == exportAction && onExportTaskReportRequested_) {
+        onExportTaskReportRequested_(taskId);
+    } else if (triggered == cancelAction && onCancelRequested_) {
+        onCancelRequested_(taskId);
+    } else if (triggered == removeAction && onRemoveRequested_) {
+        onRemoveRequested_(taskId);
+    } else if (triggered == clearFinishedAction && onClearFinishedRequested_) {
+        onClearFinishedRequested_();
+    }
 }
 
 } // namespace rastertoolbox::ui::panels

@@ -60,6 +60,7 @@ private:
 
     void markStateChanged();
     void emitSnapshotIfChanged();
+    void throttleSnapshotEmission();
     void emitEvent(ProgressEvent event);
     void emitSnapshot();
 
@@ -72,6 +73,7 @@ private:
     std::unordered_map<std::string, QFutureWatcher<rastertoolbox::engine::RasterJobResult>*> runningWatchers_;
 
     QTimer* schedulerTimer_{};
+    QTimer* snapshotThrottleTimer_{};
     std::uint64_t stateRevision_{0};
     std::uint64_t emittedRevision_{0};
 

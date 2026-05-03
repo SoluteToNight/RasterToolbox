@@ -13,6 +13,7 @@ class QLineEdit;
 class QPlainTextEdit;
 class QPushButton;
 class QLabel;
+class QTimer;
 
 namespace rastertoolbox::ui::panels {
 
@@ -29,8 +30,12 @@ public:
 private:
     void wireEvents();
     void refresh();
+    void scheduleRefresh();
 
     std::vector<rastertoolbox::dispatcher::ProgressEvent> events_;
+
+    QTimer* refreshThrottleTimer_{};
+    bool refreshPending_{false};
 
     QComboBox* levelFilter_{};
     QLineEdit* taskFilter_{};

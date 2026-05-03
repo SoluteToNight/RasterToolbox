@@ -19,6 +19,20 @@ public:
         int maxDimension,
         std::string& errorMessage
     ) const;
+
+    // Opens the dataset once to extract both metadata and preview.
+    // Avoids the double-GDALOpenEx penalty on heavy tiled formats (GPKG).
+    struct ReadAllResult {
+        std::optional<DatasetInfo> metadata;
+        std::optional<DatasetPreview> preview;
+        std::string metadataError;
+        std::string previewError;
+    };
+
+    [[nodiscard]] ReadAllResult readAll(
+        const std::string& path,
+        int previewMaxDimension
+    ) const;
 };
 
 } // namespace rastertoolbox::engine

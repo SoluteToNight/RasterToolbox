@@ -17,7 +17,7 @@ inline constexpr std::string_view kTargetPixelSizeUnitArcMinutes{"arc-minute"};
 inline constexpr std::string_view kTargetPixelSizeUnitArcSeconds{"arc-second"};
 
 struct Preset {
-    int schemaVersion{4};
+    int schemaVersion{5};
     std::string id;
     std::string name;
     std::string outputFormat{"GTiff"};
@@ -33,6 +33,8 @@ struct Preset {
     bool overwriteExisting{false};
     nlohmann::json creationOptions = nlohmann::json::object();
     nlohmann::json gdalOptions = nlohmann::json::object();
+    int blockXSize{256};
+    int blockYSize{256};
     std::string targetEpsg;
     double targetPixelSizeX{0.0};
     double targetPixelSizeY{0.0};

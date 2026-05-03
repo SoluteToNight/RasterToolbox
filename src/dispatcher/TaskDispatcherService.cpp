@@ -22,6 +22,13 @@ TaskDispatcherService::TaskDispatcherService(
     schedulerTimer_ = new QTimer(this);
     connect(schedulerTimer_, &QTimer::timeout, this, [this]() { scheduleDispatch(); });
     schedulerTimer_->start(250);
+
+    snapshotThrottleTimer_ = new QTimer(this);
+    snapshotThrottleTimer_->setSingleShot(true);
+    snapshotThrottleTimer_->setInterval(200);
+    connect(snapshotThrottleTimer_, &QTimer::timeout, this, [this]() {
+        emitSnapshotIfChanged();
+    });
 }
 
 void TaskDispatcherService::setMaxConcurrentTasks(const int value) {
@@ -290,7 +297,13 @@ void TaskDispatcherService::dispatchTask(const Task& task) {
                     markStateChanged();
                 }
                 emitEvent(event);
-                emitSnapshotIfChanged();
+                // Throttle snapshot emission: high-frequency progress
+                // callbacks from GDAL can fire thousands of times per task
+                // (once per internal tile). emitSnapshotIfChanged() alone
+                // can't deduplicate these because every progress value is
+                // unique. The throttle limits emissions to one immediate
+                // + one per 200ms cooldown window.
+                throttleSnapshotEmission();
             }, Qt::QueuedConnection);
         };
 
@@ -352,6 +365,17 @@ void TaskDispatcherService::emitSnapshotIfChanged() {
 
     emittedRevision_ = stateRevision_;
     emitSnapshot();
+}
+
+void TaskDispatcherService::throttleSnapshotEmission() {
+    if (!snapshotThrottleTimer_->isActive()) {
+        // Immediate emission on first state change, then start cooldown
+        // to prevent flooding the UI during high-frequency progress updates.
+        emitSnapshotIfChanged();
+        snapshotThrottleTimer_->start();
+    }
+    // If timer is running, wait for the timeout — it will call
+    // emitSnapshotIfChanged() which catches up on any accumulated changes.
 }
 
 void TaskDispatcherService::emitEvent(ProgressEvent event) {

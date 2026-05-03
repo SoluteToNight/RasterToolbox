@@ -96,11 +96,15 @@ set_tests_properties(dispatcher_integration PROPERTIES LABELS "integration;queue
 add_executable(test_mainwindow_preset_and_log integration/test_mainwindow_preset_and_log.cpp)
 target_include_directories(test_mainwindow_preset_and_log PRIVATE ${PROJECT_SOURCE_DIR}/include)
 target_sources(test_mainwindow_preset_and_log PRIVATE
+    ${PROJECT_SOURCE_DIR}/include/rastertoolbox/ui/NavigationPillBar.hpp
+    ${PROJECT_SOURCE_DIR}/include/rastertoolbox/ui/panels/OverviewDetailPanel.hpp
     ${PROJECT_SOURCE_DIR}/src/ui/MainWindow.cpp
+    ${PROJECT_SOURCE_DIR}/src/ui/NavigationPillBar.cpp
     ${PROJECT_SOURCE_DIR}/src/ui/panels/SourcePanel.cpp
     ${PROJECT_SOURCE_DIR}/src/ui/panels/PresetPanel.cpp
     ${PROJECT_SOURCE_DIR}/src/ui/panels/QueuePanel.cpp
     ${PROJECT_SOURCE_DIR}/src/ui/panels/LogPanel.cpp
+    ${PROJECT_SOURCE_DIR}/src/ui/panels/OverviewDetailPanel.cpp
     ${PROJECT_SOURCE_DIR}/src/dispatcher/TaskQueueManager.cpp
     ${PROJECT_SOURCE_DIR}/src/dispatcher/TaskReportSerializer.cpp
     ${PROJECT_SOURCE_DIR}/src/dispatcher/TaskDispatcherService.cpp
@@ -148,6 +152,32 @@ set_tests_properties(real_data_phase6 PROPERTIES LABELS "integration;real-data;e
 add_test(NAME startup_smoke COMMAND $<TARGET_FILE:rastertoolbox> --smoke-startup)
 set_tests_properties(startup_smoke PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 set_tests_properties(startup_smoke PROPERTIES LABELS "startup;integration")
+
+add_executable(test_gebco_workflow integration/test_gebco_workflow.cpp)
+target_include_directories(test_gebco_workflow PRIVATE ${PROJECT_SOURCE_DIR}/include)
+target_sources(test_gebco_workflow PRIVATE
+    ${PROJECT_SOURCE_DIR}/src/dispatcher/TaskQueueManager.cpp
+    ${PROJECT_SOURCE_DIR}/src/dispatcher/TaskDispatcherService.cpp
+    ${PROJECT_SOURCE_DIR}/src/dispatcher/WorkerContext.cpp
+    ${PROJECT_SOURCE_DIR}/src/engine/RasterExecutionService.cpp
+    ${PROJECT_SOURCE_DIR}/src/engine/RasterConverter.cpp
+    ${PROJECT_SOURCE_DIR}/src/engine/OverviewBuilder.cpp
+)
+target_link_libraries(test_gebco_workflow PRIVATE
+    Qt6::Core
+    Qt6::Concurrent
+    Qt6::Gui
+    Qt6::Widgets
+    ${RASTERTOOLBOX_GDAL_TARGET}
+    nlohmann_json::nlohmann_json
+)
+add_test(NAME gebco_workflow COMMAND test_gebco_workflow)
+set_tests_properties(
+    gebco_workflow
+    PROPERTIES
+    LABELS "integration;real-data;engine-runner;queue;log"
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+)
 
 add_executable(test_task_report_and_log_export integration/test_task_report_and_log_export.cpp)
 target_include_directories(test_task_report_and_log_export PRIVATE ${PROJECT_SOURCE_DIR}/include)

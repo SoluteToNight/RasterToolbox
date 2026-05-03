@@ -17,6 +17,12 @@ public:
         std::vector<std::string>* warnings = nullptr
     ) const;
     void saveToFile(const std::filesystem::path& path, const std::vector<Preset>& presets) const;
+
+    [[nodiscard]] std::vector<Preset> loadFromUserConfig(
+        std::vector<std::string>* warnings = nullptr
+    ) const;
+    void saveToUserConfig(const std::vector<Preset>& presets) const;
+    void deleteFromUserConfig(const std::string& presetId) const;
 };
 
 } // namespace rastertoolbox::config

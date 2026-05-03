@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 
+#include <QPoint>
 #include <QWidget>
 
 #include "rastertoolbox/dispatcher/Task.hpp"
@@ -32,6 +33,7 @@ public:
 
 private:
     void wireEvents();
+    void showContextMenu(const QPoint& position);
     [[nodiscard]] int rowForTaskId(const std::string& taskId) const;
     void syncTaskRow(int row, const rastertoolbox::dispatcher::Task& task);
 

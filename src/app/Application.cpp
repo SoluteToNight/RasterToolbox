@@ -5,6 +5,8 @@
 
 #include <QApplication>
 #include <QByteArray>
+#include <QGuiApplication>
+#include <QScreen>
 
 #include "rastertoolbox/engine/GdalRuntime.hpp"
 #include "rastertoolbox/ui/MainWindow.hpp"
@@ -22,6 +24,12 @@ int Application::run(int argc, char* argv[]) const {
     if (smokeStartup) {
         qputenv("QT_QPA_PLATFORM", QByteArray("offscreen"));
     }
+
+    // Enable high-DPI rendering on all platforms (Qt6 enables this by default,
+    // but we set the rounding policy for crisp fractional scaling).
+    QApplication::setHighDpiScaleFactorRoundingPolicy(
+        Qt::HighDpiScaleFactorRoundingPolicy::RoundPreferFloor
+    );
 
     QApplication application(argc, argv);
 

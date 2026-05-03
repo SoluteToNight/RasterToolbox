@@ -4,17 +4,22 @@
 #include <system_error>
 
 #include <QAbstractItemView>
+#include <QApplication>
+#include <QDesktopServices>
 #include <QFrame>
 #include <QFutureWatcher>
 #include <QHeaderView>
 #include <QHBoxLayout>
 #include <QItemSelectionModel>
 #include <QLabel>
+#include <QMenu>
 #include <QPlainTextEdit>
 #include <QPixmap>
 #include <QPushButton>
+#include <QScreen>
 #include <QTableWidget>
 #include <QTableWidgetItem>
+#include <QUrl>
 #include <QVBoxLayout>
 #include <QtConcurrent>
 
@@ -26,6 +31,8 @@ constexpr int PathColumn = 0;
 constexpr int DriverColumn = 1;
 constexpr int BandsColumn = 2;
 constexpr int SizeColumn = 3;
+constexpr int EpsgColumn = 4;
+constexpr int StatusColumn = 5;
 
 struct FileSizeResult {
     QString path;
@@ -74,6 +81,11 @@ QString numberText(const double value) {
 
 SourcePanel::SourcePanel(QWidget* parent) : QWidget(parent) {
     setObjectName("sourcePanel");
+
+    const qreal dpr = (qApp != nullptr && qApp->primaryScreen() != nullptr)
+        ? qApp->primaryScreen()->devicePixelRatio()
+        : 1.0;
+
     auto* layout = new QVBoxLayout(this);
     layout->setContentsMargins(16, 16, 16, 16);
     layout->setSpacing(12);
@@ -107,19 +119,43 @@ SourcePanel::SourcePanel(QWidget* parent) : QWidget(parent) {
     sourceTable_ = new QTableWidget(this);
     sourceTable_->setObjectName("sourceTable");
     sourceTable_->setProperty("surfaceRole", QStringLiteral("sourceTable"));
-    sourceTable_->setColumnCount(4);
-    sourceTable_->setHorizontalHeaderLabels({"文件", "格式", "波段", "大小"});
+    sourceTable_->setColumnCount(6);
+    sourceTable_->setHorizontalHeaderLabels({"文件", "格式", "波段", "大小", "坐标系", "状态"});
     sourceTable_->horizontalHeader()->setSectionResizeMode(PathColumn, QHeaderView::Stretch);
     sourceTable_->horizontalHeader()->setSectionResizeMode(DriverColumn, QHeaderView::ResizeToContents);
     sourceTable_->horizontalHeader()->setSectionResizeMode(BandsColumn, QHeaderView::ResizeToContents);
     sourceTable_->horizontalHeader()->setSectionResizeMode(SizeColumn, QHeaderView::ResizeToContents);
+    sourceTable_->horizontalHeader()->setSectionResizeMode(EpsgColumn, QHeaderView::ResizeToContents);
+    sourceTable_->horizontalHeader()->setSectionResizeMode(StatusColumn, QHeaderView::ResizeToContents);
     sourceTable_->verticalHeader()->setVisible(false);
     sourceTable_->setAlternatingRowColors(true);
     sourceTable_->setShowGrid(false);
     sourceTable_->setSelectionBehavior(QAbstractItemView::SelectRows);
     sourceTable_->setSelectionMode(QAbstractItemView::ExtendedSelection);
-    sourceTable_->setMinimumHeight(140);
+    sourceTable_->setContextMenuPolicy(Qt::CustomContextMenu);
+    sourceTable_->setMinimumHeight(static_cast<int>(140 * dpr));
     layout->addWidget(sourceTable_, 2);
+
+    auto* selectionControlLayout = new QHBoxLayout();
+    selectionControlLayout->setSpacing(8);
+
+    selectAllButton_ = new QPushButton("全选", this);
+    selectAllButton_->setObjectName("sourceSelectAllButton");
+    selectAllButton_->setProperty("buttonRole", QStringLiteral("ghost"));
+    selectionControlLayout->addWidget(selectAllButton_);
+
+    deselectAllButton_ = new QPushButton("取消全选", this);
+    deselectAllButton_->setObjectName("sourceDeselectAllButton");
+    deselectAllButton_->setProperty("buttonRole", QStringLiteral("ghost"));
+    selectionControlLayout->addWidget(deselectAllButton_);
+
+    invertSelectionButton_ = new QPushButton("反选", this);
+    invertSelectionButton_->setObjectName("sourceInvertSelectionButton");
+    invertSelectionButton_->setProperty("buttonRole", QStringLiteral("ghost"));
+    selectionControlLayout->addWidget(invertSelectionButton_);
+
+    selectionControlLayout->addStretch(1);
+    layout->addLayout(selectionControlLayout);
 
     selectionSummaryLabel_ = new QLabel("已选择 0 / 0 个文件", this);
     selectionSummaryLabel_->setObjectName("sourceSelectionSummaryLabel");
@@ -136,7 +172,7 @@ SourcePanel::SourcePanel(QWidget* parent) : QWidget(parent) {
     previewLabel_ = new QLabel("预览不可用", detailPanel_);
     previewLabel_->setObjectName("sourcePreviewLabel");
     previewLabel_->setProperty("surfaceRole", QStringLiteral("preview"));
-    previewLabel_->setMinimumSize(180, 120);
+    previewLabel_->setMinimumSize(static_cast<int>(180 * dpr), static_cast<int>(120 * dpr));
     previewLabel_->setAlignment(Qt::AlignCenter);
     previewLabel_->setWordWrap(true);
     detailLayout->addWidget(previewLabel_);
@@ -159,7 +195,7 @@ SourcePanel::SourcePanel(QWidget* parent) : QWidget(parent) {
     metadataSummaryTable_->setShowGrid(false);
     metadataSummaryTable_->setSelectionMode(QAbstractItemView::NoSelection);
     metadataSummaryTable_->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    metadataSummaryTable_->setMinimumHeight(120);
+    metadataSummaryTable_->setMinimumHeight(static_cast<int>(120 * dpr));
     detailLayout->addWidget(metadataSummaryTable_, 1);
 
     metadataProjectionDetails_ = new QPlainTextEdit(detailPanel_);
@@ -214,6 +250,37 @@ void SourcePanel::wireEvents() {
     connect(metadataDetailsButton_, &QPushButton::clicked, this, [this]() {
         setMetadataDetailsExpanded(!metadataDetailsExpanded_);
     });
+
+    connect(selectAllButton_, &QPushButton::clicked, this, [this]() {
+        if (sourceTable_->rowCount() == 0) {
+            return;
+        }
+        sourceTable_->selectAll();
+    });
+
+    connect(deselectAllButton_, &QPushButton::clicked, this, [this]() {
+        sourceTable_->clearSelection();
+    });
+
+    connect(invertSelectionButton_, &QPushButton::clicked, this, [this]() {
+        const int rows = sourceTable_->rowCount();
+        if (rows == 0) {
+            return;
+        }
+        auto* model = sourceTable_->selectionModel();
+        if (model == nullptr) {
+            return;
+        }
+        for (int row = 0; row < rows; ++row) {
+            const auto index = sourceTable_->model()->index(row, 0);
+            const bool isSelected = model->isSelected(index);
+            model->select(index, isSelected
+                ? QItemSelectionModel::Deselect | QItemSelectionModel::Rows
+                : QItemSelectionModel::Select | QItemSelectionModel::Rows);
+        }
+    });
+
+    connect(sourceTable_, &QTableWidget::customContextMenuRequested, this, &SourcePanel::showContextMenu);
 }
 
 void SourcePanel::addSourcePath(const QString& path) {
@@ -238,6 +305,11 @@ void SourcePanel::addSourcePath(const QString& path) {
     sourceTable_->setItem(row, DriverColumn, createItem("未读取"));
     sourceTable_->setItem(row, BandsColumn, createItem("-"));
     sourceTable_->setItem(row, SizeColumn, createItem("读取中"));
+    sourceTable_->setItem(row, EpsgColumn, createItem("-"));
+    auto* statusLabel = new QLabel(QStringLiteral("就绪"));
+    statusLabel->setProperty("semanticRole", QStringLiteral("badge"));
+    statusLabel->setAlignment(Qt::AlignCenter);
+    sourceTable_->setCellWidget(row, StatusColumn, statusLabel);
 
     sourceTable_->selectRow(row);
     sourceTable_->setCurrentCell(row, PathColumn);
@@ -246,6 +318,7 @@ void SourcePanel::addSourcePath(const QString& path) {
 }
 
 void SourcePanel::clearSources() {
+    fileSizes_.clear();
     sourceTable_->setRowCount(0);
     metadataSummaryTable_->setRowCount(0);
     metadataProjectionDetails_->clear();
@@ -254,6 +327,35 @@ void SourcePanel::clearSources() {
     clearPreview("预览不可用");
     setMetadataDetailsExpanded(true);
     setBatchSummary("数量: 0 | 总像素: 0");
+    updateSelectionSummary();
+}
+
+void SourcePanel::removeSourcePaths(const std::vector<std::string>& paths)
+{
+    if (paths.empty()) {
+        return;
+    }
+
+    // Remove from bottom to top to preserve row indices
+    for (int row = sourceTable_->rowCount() - 1; row >= 0; --row) {
+        const auto rowPath = pathForRow(row);
+        const auto it = std::find(paths.begin(), paths.end(), rowPath.toStdString());
+        if (it != paths.end()) {
+            fileSizes_.remove(rowPath);
+            sourceTable_->removeRow(row);
+        }
+    }
+
+    // If table is now empty, reset detail panel
+    if (sourceTable_->rowCount() == 0) {
+        metadataSummaryTable_->setRowCount(0);
+        metadataProjectionDetails_->clear();
+        previewLoadingLabel_->clear();
+        errorLabel_->clear();
+        clearPreview("预览不可用");
+        setMetadataDetailsExpanded(true);
+    }
+
     updateSelectionSummary();
 }
 
@@ -305,6 +407,9 @@ void SourcePanel::setSourceMetadata(
     sourceTable_->item(row, BandsColumn)->setText(QString::number(info.bandCount));
     sourceTable_->item(row, DriverColumn)->setToolTip("元数据读取成功");
     sourceTable_->item(row, BandsColumn)->setToolTip(QString("Bands: %1").arg(info.bandCount));
+    sourceTable_->item(row, EpsgColumn)->setText(
+        QString::fromStdString(info.epsg.empty() ? "-" : "EPSG:" + info.epsg)
+    );
 }
 
 void SourcePanel::setBatchSummary(const QString& summary) {
@@ -419,6 +524,25 @@ void SourcePanel::setSourceFileSize(const QString& path, const QString& sizeText
         return;
     }
 
+    // Parse the size text and store in map
+    bool ok = false;
+    double sizeValue = 0.0;
+    if (sizeText.endsWith("GB")) {
+        sizeValue = sizeText.chopped(3).toDouble(&ok);
+        if (ok) sizeValue *= 1024.0 * 1024.0 * 1024.0;
+    } else if (sizeText.endsWith("MB")) {
+        sizeValue = sizeText.chopped(3).toDouble(&ok);
+        if (ok) sizeValue *= 1024.0 * 1024.0;
+    } else if (sizeText.endsWith("KB")) {
+        sizeValue = sizeText.chopped(3).toDouble(&ok);
+        if (ok) sizeValue *= 1024.0;
+    } else if (sizeText.endsWith("B") && !sizeText.contains("G") && !sizeText.contains("M") && !sizeText.contains("K")) {
+        sizeValue = sizeText.chopped(2).toDouble(&ok);
+    }
+    if (ok) {
+        fileSizes_[path] = sizeValue;
+    }
+
     sourceTable_->item(row, SizeColumn)->setText(sizeText);
 }
 
@@ -426,8 +550,32 @@ void SourcePanel::updateSelectionSummary() {
     const int selectedCount = sourceTable_->selectionModel() == nullptr
         ? 0
         : static_cast<int>(sourceTable_->selectionModel()->selectedRows().size());
+
+    // Calculate total size for selected files
+    double totalBytes = 0.0;
+    if (selectedCount > 0) {
+        const auto selectedRows = sourceTable_->selectionModel()->selectedRows();
+        for (const auto& index : selectedRows) {
+            const auto path = pathForRow(index.row());
+            if (!path.isEmpty() && fileSizes_.contains(path)) {
+                totalBytes += fileSizes_[path];
+            }
+        }
+    }
+
+    QString sizeText;
+    if (totalBytes >= 1024.0 * 1024.0 * 1024.0) {
+        sizeText = QString(" | 总大小: %1 GB").arg(totalBytes / (1024.0 * 1024.0 * 1024.0), 0, 'f', 1);
+    } else if (totalBytes >= 1024.0 * 1024.0) {
+        sizeText = QString(" | 总大小: %1 MB").arg(totalBytes / (1024.0 * 1024.0), 0, 'f', 1);
+    } else if (totalBytes >= 1024.0) {
+        sizeText = QString(" | 总大小: %1 KB").arg(totalBytes / 1024.0, 0, 'f', 1);
+    } else if (totalBytes > 0.0) {
+        sizeText = QString(" | 总大小: %1 B").arg(totalBytes, 0, 'f', 0);
+    }
+
     selectionSummaryLabel_->setText(
-        QString("已选择 %1 / %2 个文件").arg(selectedCount).arg(sourceTable_->rowCount())
+        QString("已选择 %1 / %2 个文件%3").arg(selectedCount).arg(sourceTable_->rowCount()).arg(sizeText)
     );
 }
 
@@ -462,6 +610,9 @@ void SourcePanel::setDetailText(const rastertoolbox::engine::DatasetInfo& info) 
               .arg(numberText(info.extentMinX), numberText(info.extentMaxX), numberText(info.extentMinY), numberText(info.extentMaxY))
         : QStringLiteral("未知"));
     addRow("金字塔", info.hasOverviews ? QString("%1 个").arg(info.overviewCount) : QStringLiteral("无"));
+    addRow("分块", info.blockXSize > 0 && info.blockYSize > 0
+        ? QString("Tile %1 x %2").arg(info.blockXSize).arg(info.blockYSize)
+        : QStringLiteral("未知"));
     addRow("NoData", info.hasNoData ? QString::fromStdString(info.noDataValue) : QStringLiteral("无"));
     addRow("建议输出目录", QString::fromStdString(info.suggestedOutputDirectory));
     metadataSummaryTable_->resizeRowsToContents();
@@ -475,6 +626,79 @@ void SourcePanel::setMetadataMessage(const QString& label, const QString& messag
     metadataSummaryTable_->setItem(0, 0, createItem(label));
     metadataSummaryTable_->setItem(0, 1, createItem(message));
     metadataSummaryTable_->resizeRowsToContents();
+}
+
+void SourcePanel::setDetailPanelVisible(bool visible)
+{
+    detailPanel_->setVisible(visible);
+}
+
+void SourcePanel::showContextMenu(const QPoint& position)
+{
+    const int rowCount = sourceTable_->rowCount();
+    if (rowCount <= 0) {
+        return;
+    }
+
+    const auto currentSelection = selectedPaths();
+    const bool hasSelection = !currentSelection.empty();
+
+    QMenu menu(sourceTable_);
+
+    auto* openLocationAction = menu.addAction("打开文件所在位置");
+    openLocationAction->setEnabled(hasSelection && currentSelection.size() == 1);
+
+    auto* removeAction = menu.addAction("从列表中移除");
+    removeAction->setEnabled(hasSelection);
+
+    menu.addSeparator();
+
+    auto* selectAllAction = menu.addAction("全选");
+    selectAllAction->setEnabled(rowCount > 0);
+
+    auto* deselectAllAction = menu.addAction("取消全选");
+    deselectAllAction->setEnabled(hasSelection);
+
+    auto* invertAction = menu.addAction("反选");
+    invertAction->setEnabled(rowCount > 0);
+
+    QAction* triggered = menu.exec(sourceTable_->viewport()->mapToGlobal(position));
+    if (triggered == nullptr) {
+        return;
+    }
+
+    if (triggered == openLocationAction) {
+        const auto path = selectedPath();
+        if (!path.isEmpty()) {
+            const auto dir = std::filesystem::path(path.toStdString()).parent_path();
+            QDesktopServices::openUrl(QUrl::fromLocalFile(QString::fromStdString(dir.string())));
+        }
+    } else if (triggered == removeAction) {
+        if (onRemoveSelectedRequested_) {
+            onRemoveSelectedRequested_(currentSelection);
+        }
+    } else if (triggered == selectAllAction) {
+        sourceTable_->selectAll();
+    } else if (triggered == deselectAllAction) {
+        sourceTable_->clearSelection();
+    } else if (triggered == invertAction) {
+        auto* model = sourceTable_->selectionModel();
+        if (model == nullptr) {
+            return;
+        }
+        for (int row = 0; row < rowCount; ++row) {
+            const auto index = sourceTable_->model()->index(row, 0);
+            const bool isSelected = model->isSelected(index);
+            model->select(index, isSelected
+                ? QItemSelectionModel::Deselect | QItemSelectionModel::Rows
+                : QItemSelectionModel::Select | QItemSelectionModel::Rows);
+        }
+    }
+}
+
+void SourcePanel::setOnRemoveSelectedRequested(std::function<void(std::vector<std::string>)> callback)
+{
+    onRemoveSelectedRequested_ = std::move(callback);
 }
 
 } // namespace rastertoolbox::ui::panels

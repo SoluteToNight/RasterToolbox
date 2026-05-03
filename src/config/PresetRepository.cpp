@@ -6,6 +6,7 @@
 #include <stdexcept>
 
 #include <QFile>
+#include <QSettings>
 
 #include <nlohmann/json.hpp>
 
@@ -55,6 +56,8 @@ Preset fromJson(const nlohmann::json& payload, std::vector<std::string>* warning
     if (preset.creationOptions.empty()) {
         preset.creationOptions = preset.gdalOptions;
     }
+    preset.blockXSize = payload.value("blockXSize", 256);
+    preset.blockYSize = payload.value("blockYSize", 256);
     preset.targetEpsg = payload.value("targetEpsg", "");
     preset.targetPixelSizeX = payload.value("targetPixelSizeX", 0.0);
     preset.targetPixelSizeY = payload.value("targetPixelSizeY", 0.0);
@@ -94,6 +97,8 @@ nlohmann::json toJson(const Preset& preset) {
         {"overwriteExisting", preset.overwriteExisting},
         {"creationOptions", preset.creationOptions},
         {"gdalOptions", preset.gdalOptions},
+        {"blockXSize", preset.blockXSize},
+        {"blockYSize", preset.blockYSize},
         {"targetEpsg", preset.targetEpsg},
         {"targetPixelSizeX", preset.targetPixelSizeX},
         {"targetPixelSizeY", preset.targetPixelSizeY},
@@ -176,6 +181,37 @@ void PresetRepository::saveToFile(
     }
 
     stream << payload.dump(2) << '\n';
+}
+
+std::vector<Preset> PresetRepository::loadFromUserConfig(std::vector<std::string>* warnings) const {
+    QSettings settings("RasterToolbox", "RasterToolbox");
+    const QString raw = settings.value("presets/user-presets").toString();
+    if (raw.isEmpty()) {
+        return {};
+    }
+    const auto payload = nlohmann::json::parse(raw.toStdString());
+    if (warnings != nullptr) {
+        warnings->clear();
+    }
+    return decode(payload, warnings);
+}
+
+void PresetRepository::saveToUserConfig(const std::vector<Preset>& presets) const {
+    QSettings settings("RasterToolbox", "RasterToolbox");
+    nlohmann::json payload = nlohmann::json::array();
+    for (const auto& preset : presets) {
+        payload.push_back(toJson(preset));
+    }
+    settings.setValue("presets/user-presets", QString::fromStdString(payload.dump()));
+}
+
+void PresetRepository::deleteFromUserConfig(const std::string& presetId) const {
+    std::vector<Preset> presets = loadFromUserConfig();
+    presets.erase(
+        std::remove_if(presets.begin(), presets.end(), [&presetId](const Preset& p) { return p.id == presetId; }),
+        presets.end()
+    );
+    saveToUserConfig(presets);
 }
 
 } // namespace rastertoolbox::config

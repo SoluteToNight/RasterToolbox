@@ -171,8 +171,16 @@ RasterJobResult RasterConverter::convert(
         ) {
             appendWarpCreationOption(&warpOptions, "COMPRESS", request.preset.compressionMethod);
         }
-        if (!optionPayload.is_object() || !optionPayload.contains("TILED")) {
-            appendWarpCreationOption(&warpOptions, "TILED", "YES");
+        if (request.preset.driverName == "GTiff") {
+            if (!optionPayload.is_object() || !optionPayload.contains("TILED")) {
+                appendWarpCreationOption(&warpOptions, "TILED", "YES");
+            }
+            if (!optionPayload.is_object() || !optionPayload.contains("BLOCKXSIZE")) {
+                appendWarpCreationOption(&warpOptions, "BLOCKXSIZE", std::to_string(request.preset.blockXSize));
+            }
+            if (!optionPayload.is_object() || !optionPayload.contains("BLOCKYSIZE")) {
+                appendWarpCreationOption(&warpOptions, "BLOCKYSIZE", std::to_string(request.preset.blockYSize));
+            }
         }
         if (
             request.preset.compressionLevel > 0
@@ -250,8 +258,16 @@ RasterJobResult RasterConverter::convert(
     ) {
         options = CSLSetNameValue(options, "COMPRESS", request.preset.compressionMethod.c_str());
     }
-    if (CSLFetchNameValue(options, "TILED") == nullptr && request.preset.driverName == "GTiff") {
-        options = CSLSetNameValue(options, "TILED", "YES");
+    if (request.preset.driverName == "GTiff") {
+        if (CSLFetchNameValue(options, "TILED") == nullptr) {
+            options = CSLSetNameValue(options, "TILED", "YES");
+        }
+        if (CSLFetchNameValue(options, "BLOCKXSIZE") == nullptr) {
+            options = CSLSetNameValue(options, "BLOCKXSIZE", std::to_string(request.preset.blockXSize).c_str());
+        }
+        if (CSLFetchNameValue(options, "BLOCKYSIZE") == nullptr) {
+            options = CSLSetNameValue(options, "BLOCKYSIZE", std::to_string(request.preset.blockYSize).c_str());
+        }
     }
     if (
         CSLFetchNameValue(options, "ZLEVEL") == nullptr

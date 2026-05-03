@@ -22,12 +22,17 @@ class SourcePanel;
 class PresetPanel;
 class QueuePanel;
 class LogPanel;
+class OverviewDetailPanel;
 }
 class QAction;
 class QLabel;
 class QPushButton;
-class QTabWidget;
+class QStackedWidget;
 class QWidget;
+
+namespace rastertoolbox::ui {
+class NavigationPillBar;
+}
 
 namespace rastertoolbox::ui {
 
@@ -53,7 +58,9 @@ private:
     void handlePresetChanged(const rastertoolbox::config::Preset& preset);
     void handleLoadPresetRequested();
     void handleSavePresetRequested(const rastertoolbox::config::Preset& preset);
+    void handleSavePresetToAppRequested(const rastertoolbox::config::Preset& preset);
     void handleClearSourcesRequested();
+    void handleRemoveSourcesRequested(std::vector<std::string> paths);
     void handleOutputDirectoryBrowseRequested();
     void handleResetPresetRequested();
     void handleHelpRequested();
@@ -121,10 +128,11 @@ private:
     QAction* lightThemeAction_{};
     QPushButton* themeToggleButton_{};
     QPushButton* helpButton_{};
-    QTabWidget* mainTabWidget_{};
-    QPushButton* homeSubmitButton_{};
-    QPushButton* viewQueueButton_{};
-    QPushButton* viewLogButton_{};
+    NavigationPillBar* navigationPillBar_{};
+    QStackedWidget* contentStack_{};
+    QWidget* overviewPage_{};
+    QWidget* presetPage_{};
+    panels::OverviewDetailPanel* overviewDetailPanel_{};
     QLabel* statusSuccessCountLabel_{};
     QLabel* statusRunningCountLabel_{};
     QLabel* statusPendingCountLabel_{};

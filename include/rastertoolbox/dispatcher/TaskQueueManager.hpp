@@ -37,7 +37,8 @@ public:
     [[nodiscard]] std::size_t runningCount() const;
 
 private:
-    [[nodiscard]] bool hasOutputConflict(const Task& task, std::string& reason) const;
+    [[nodiscard]] bool hasFilesystemConflict(const Task& task, std::string& reason) const;
+    [[nodiscard]] bool hasInMemoryConflictLocked(const Task& task, std::string& reason) const;
 
     mutable std::mutex mutex_;
     std::vector<Task> tasks_;

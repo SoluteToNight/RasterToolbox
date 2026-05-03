@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cctype>
 
+#include <QApplication>
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDialog>
@@ -15,6 +16,7 @@
 #include <QListWidget>
 #include <QPlainTextEdit>
 #include <QPushButton>
+#include <QScreen>
 #include <QSignalBlocker>
 #include <QStringList>
 #include <QSpinBox>
@@ -66,7 +68,7 @@ const std::vector<OutputFormatDefinition>& outputFormatDefinitions() {
             ".tif",
             geoTiffCompressionMethods(),
             "NONE",
-            nlohmann::json::object({{"TILED", "NO"}}),
+            nlohmann::json::object(),
         },
         {
             "Compressed GeoTIFF",
@@ -74,7 +76,7 @@ const std::vector<OutputFormatDefinition>& outputFormatDefinitions() {
             ".tif",
             geoTiffCompressionMethods(),
             "LZW",
-            nlohmann::json::object({{"COMPRESS", "LZW"}, {"TILED", "YES"}, {"BIGTIFF", "IF_SAFER"}}),
+            nlohmann::json::object({{"COMPRESS", "LZW"}, {"BIGTIFF", "IF_SAFER"}}),
         },
         {
             "COG-like GeoTIFF",
@@ -84,9 +86,6 @@ const std::vector<OutputFormatDefinition>& outputFormatDefinitions() {
             "ZSTD",
             nlohmann::json::object({
                 {"COMPRESS", "ZSTD"},
-                {"TILED", "YES"},
-                {"BLOCKXSIZE", "512"},
-                {"BLOCKYSIZE", "512"},
                 {"BIGTIFF", "IF_SAFER"},
                 {"COPY_SRC_OVERVIEWS", "YES"},
             }),
@@ -539,6 +538,11 @@ QString selectProjection(QWidget* parent, const QString& currentValue) {
 
 PresetPanel::PresetPanel(QWidget* parent) : QWidget(parent) {
     setObjectName("presetPanel");
+
+    const qreal dpr = (qApp != nullptr && qApp->primaryScreen() != nullptr)
+        ? qApp->primaryScreen()->devicePixelRatio()
+        : 1.0;
+
     auto* layout = new QVBoxLayout(this);
     layout->setContentsMargins(18, 18, 18, 18);
     layout->setSpacing(14);
@@ -666,7 +670,7 @@ PresetPanel::PresetPanel(QWidget* parent) : QWidget(parent) {
     gdalOptionsEdit_->setObjectName("gdalOptionsEdit");
     gdalOptionsEdit_->setProperty("surfaceRole", QStringLiteral("codeEditor"));
     gdalOptionsEdit_->setPlaceholderText(R"({"COMPRESS":"LZW","TILED":"YES"})");
-    gdalOptionsEdit_->setMaximumHeight(160);
+    gdalOptionsEdit_->setMaximumHeight(static_cast<int>(160 * dpr));
 
     formLayout->addRow("输出格式", outputFormatCombo_);
     formLayout->addRow("压缩方法", compressionMethodCombo_);
@@ -678,6 +682,16 @@ PresetPanel::PresetPanel(QWidget* parent) : QWidget(parent) {
     formLayout->addRow(compressionMaxZErrorLabel_, compressionMaxZErrorSpin_);
     compressionWebpLosslessLabel_ = new QLabel("WebP", this);
     formLayout->addRow(compressionWebpLosslessLabel_, compressionWebpLosslessCheck_);
+
+    blockSizeSpin_ = new QSpinBox(this);
+    blockSizeSpin_->setObjectName("blockSizeSpin");
+    blockSizeSpin_->setRange(32, 4096);
+    blockSizeSpin_->setSingleStep(32);
+    blockSizeSpin_->setToolTip("瓦片边长（像素），必须为 2 的幂，同时设定 X 和 Y");
+    blockSizeSpin_->setSuffix(" px");
+
+    formLayout->addRow("瓦片尺寸", blockSizeSpin_);
+
     formLayout->addRow("构建金字塔", buildOverviewsCheck_);
     formLayout->addRow("输出目录", outputDirectoryRow);
     formLayout->addRow("输出后缀", outputSuffixEdit_);
@@ -692,6 +706,9 @@ PresetPanel::PresetPanel(QWidget* parent) : QWidget(parent) {
 
     auto* buttonLayout = new QHBoxLayout();
     buttonLayout->setSpacing(10);
+    saveToAppButton_ = new QPushButton("保存到我的预设", this);
+    saveToAppButton_->setObjectName("saveToAppButton");
+    saveToAppButton_->setProperty("buttonRole", QStringLiteral("primary"));
     loadButton_ = new QPushButton("加载预设文件", this);
     loadButton_->setObjectName("loadPresetButton");
     loadButton_->setProperty("buttonRole", QStringLiteral("secondary"));
@@ -701,6 +718,7 @@ PresetPanel::PresetPanel(QWidget* parent) : QWidget(parent) {
     saveButton_ = new QPushButton("保存当前预设", this);
     saveButton_->setObjectName("savePresetButton");
     saveButton_->setProperty("buttonRole", QStringLiteral("primary"));
+    buttonLayout->addWidget(saveToAppButton_);
     buttonLayout->addWidget(loadButton_);
     buttonLayout->addWidget(resetButton_);
     buttonLayout->addWidget(saveButton_);
@@ -841,6 +859,7 @@ void PresetPanel::wireEvents() {
     connect(overwriteCheck_, &QCheckBox::checkStateChanged, this, [formChanged](Qt::CheckState) {
         formChanged();
     });
+    connect(blockSizeSpin_, &QSpinBox::valueChanged, this, [formChanged](int) { formChanged(); });
     connect(gdalOptionsEdit_, &QPlainTextEdit::textChanged, this, formChanged);
 
     connect(browseOutputDirectoryButton_, &QPushButton::clicked, this, [this]() {
@@ -858,6 +877,12 @@ void PresetPanel::wireEvents() {
     connect(saveButton_, &QPushButton::clicked, this, [this]() {
         if (onSaveRequested_) {
             onSaveRequested_(presetFromForm());
+        }
+    });
+
+    connect(saveToAppButton_, &QPushButton::clicked, this, [this]() {
+        if (onSaveToAppRequested_) {
+            onSaveToAppRequested_(presetFromForm());
         }
     });
 
@@ -1038,6 +1063,7 @@ void PresetPanel::applyPresetToForm(const rastertoolbox::config::Preset& preset)
     const QSignalBlocker pixelXBlocker(targetPixelSizeXSpin_);
     const QSignalBlocker pixelYBlocker(targetPixelSizeYSpin_);
     const QSignalBlocker pixelUnitBlocker(targetPixelSizeUnitCombo_);
+    const QSignalBlocker blockSizeBlocker(blockSizeSpin_);
 
     setComboText(outputFormatCombo_, QString::fromStdString(preset.outputFormat));
     const auto* definition = findFormatDefinition(outputFormatCombo_->currentText());
@@ -1061,6 +1087,7 @@ void PresetPanel::applyPresetToForm(const rastertoolbox::config::Preset& preset)
     updateTargetPixelSizeControls();
     resamplingCombo_->setCurrentText(QString::fromStdString(preset.resampling));
     overwriteCheck_->setChecked(preset.overwriteExisting);
+    blockSizeSpin_->setValue(preset.blockXSize);
     const auto& creationOptions = preset.creationOptions.empty() ? preset.gdalOptions : preset.creationOptions;
     gdalOptionsEdit_->setPlainText(QString::fromStdString(creationOptions.dump(2)));
     loadCompressionControlsFromOptions(creationOptions);
@@ -1100,6 +1127,8 @@ rastertoolbox::config::Preset PresetPanel::presetFromForm() const {
     preset.targetPixelSizeUnit = currentPixelUnitValue(targetPixelSizeUnitCombo_);
     preset.resampling = resamplingCombo_->currentText().toStdString();
     preset.overwriteExisting = overwriteCheck_->isChecked();
+    preset.blockXSize = blockSizeSpin_->value();
+    preset.blockYSize = blockSizeSpin_->value();
     const auto rawGdalOptions = gdalOptionsEdit_->toPlainText().trimmed().toStdString();
     if (rawGdalOptions.empty()) {
         preset.creationOptions = nlohmann::json::object();
@@ -1192,6 +1221,10 @@ void PresetPanel::setOnBrowseOutputDirectoryRequested(std::function<void()> call
 
 void PresetPanel::setOnResetRequested(std::function<void()> callback) {
     onResetRequested_ = std::move(callback);
+}
+
+void PresetPanel::setOnSaveToAppRequested(std::function<void(const rastertoolbox::config::Preset&)> callback) {
+    onSaveToAppRequested_ = std::move(callback);
 }
 
 void PresetPanel::showValidationMessage(const QString& message) {

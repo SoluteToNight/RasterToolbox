@@ -27,6 +27,8 @@ struct DatasetInfo {
     double extentMinY{0.0};
     double extentMaxX{0.0};
     double extentMaxY{0.0};
+    int blockXSize{0};
+    int blockYSize{0};
 };
 
 struct DatasetPreview {
